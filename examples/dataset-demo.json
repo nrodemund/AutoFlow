@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "schema_revision": 3,
+  "name": "Dataset demo",
+  "main": "Main",
+  "datasets": {
+    "Data": {
+      "columns": [
+        "name",
+        "status"
+      ],
+      "rows": [
+        {
+          "name": "Ada",
+          "status": "pending"
+        },
+        {
+          "name": "Linus",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "graphs": {
+    "Main": {
+      "entry": "each",
+      "parameters": {},
+      "outputs": {},
+      "nodes": {
+        "rows": {
+          "type": "GetDataset",
+          "inputs": {
+            "name": "Data"
+          },
+          "position": [
+            40,
+            100
+          ]
+        },
+        "each": {
+          "type": "ForEachRow",
+          "inputs": {
+            "dataset": {
+              "ref": [
+                "rows",
+                "dataset"
+              ]
+            }
+          },
+          "next": {
+            "body": "set"
+          },
+          "position": [
+            350,
+            100
+          ]
+        },
+        "set": {
+          "type": "SetField",
+          "inputs": {
+            "dataset": {
+              "ref": [
+                "rows",
+                "dataset"
+              ]
+            },
+            "index": {
+              "ref": [
+                "each",
+                "index"
+              ]
+            },
+            "column": "status",
+            "value": "processed"
+          },
+          "next": {
+            "then": "print"
+          },
+          "position": [
+            670,
+            100
+          ]
+        },
+        "field": {
+          "type": "GetRowField",
+          "inputs": {
+            "row": {
+              "ref": [
+                "each",
+                "row"
+              ]
+            },
+            "column": "name"
+          },
+          "position": [
+            670,
+            450
+          ]
+        },
+        "print": {
+          "type": "Print",
+          "inputs": {
+            "value": {
+              "ref": [
+                "field",
+                "value"
+              ]
+            }
+          },
+          "position": [
+            1000,
+            100
+          ]
+        }
+      }
+    }
+  }
+}

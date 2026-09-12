@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+*.tmp
+*.log
+projects/
+# The runtime binaries are intentionally included.

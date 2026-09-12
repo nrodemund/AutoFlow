@@ -1,0 +1,9 @@
+{
+  "version": 1, "schema_revision": 2, "name": "Wait for A or B", "main": "Main",
+  "graphs": {"Main": {"entry": "wait", "parameters": {}, "outputs": {}, "nodes": {
+    "wait": {"type": "WaitUntilAB", "position": [100, 100], "inputs": {"a": false, "b": true, "interval_ms": 500, "timeout_ms": 5000}, "next": {"a": "a", "b": "b", "timeout": "timeout"}},
+    "a": {"type": "Print", "position": [500, 60], "inputs": {"value": "Condition A succeeded"}},
+    "b": {"type": "Print", "position": [500, 240], "inputs": {"value": "Condition B succeeded"}},
+    "timeout": {"type": "Print", "position": [500, 420], "inputs": {"value": "Neither condition succeeded before timeout"}}
+  }}}
+}

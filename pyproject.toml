@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoflow"
+version = "0.1.0"
+description = "Modular node graph foundation for desktop automation"
+requires-python = ">=3.11"
+dependencies = ["openpyxl==3.1.5", "et-xmlfile==2.0.0", "numpy==2.2.6", "Pillow==12.1.0", "opencv-python-headless==4.12.0.88"]
+
+[project.optional-dependencies]
+ocr = [
+    "winrt-runtime==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Globalization==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr==3.2.1; sys_platform == 'win32'",
+]
+
+[project.scripts]
+autoflow = "autoflow.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["autoflow*"]
+
+[tool.setuptools.package-data]
+autoflow = ["web/*"]

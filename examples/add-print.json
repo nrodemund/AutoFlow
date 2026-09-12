@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Addition demo",
+  "main": "Main",
+  "graphs": {
+    "Main": {
+      "entry": "start",
+      "parameters": {},
+      "outputs": {},
+      "nodes": {
+        "start": {"type": "Start", "position": [70, 100], "inputs": {}, "next": {"then": "print"}},
+        "add": {"type": "AddInt", "position": [70, 260], "inputs": {"a": 2, "b": 3}},
+        "print": {"type": "Print", "position": [470, 100], "inputs": {"value": {"ref": ["add", "result"]}}}
+      }
+    }
+  }
+}

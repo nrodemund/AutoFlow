@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "CSV iteration and function calls",
+  "main": "Main",
+  "graphs": {
+    "Main": {
+      "parameters": {},
+      "entry": "load",
+      "nodes": {
+        "load": {"type": "LoadCSVFromFile", "position": [40, 80], "inputs": {"path": "people.csv"}, "next": {"then": "each"}},
+        "each": {"type": "ForEach", "position": [320, 80], "inputs": {"items": {"ref": ["load", "rows"]}}, "next": {"body": "process", "completed": "done"}},
+        "process": {"type": "CallFunction", "position": [600, 80], "inputs": {"graph": "ProcessRow", "arguments": {"row": {"ref": ["each", "item"]}}}},
+        "done": {"type": "Log", "position": [600, 320], "inputs": {"message": "All CSV rows processed."}}
+      },
+      "outputs": {"count": {"ref": ["each", "count"]}}
+    },
+    "ProcessRow": {
+      "parameters": {"row": "dict"},
+      "entry": "print",
+      "nodes": {
+        "print": {"type": "Log", "position": [40, 80], "inputs": {"message": {"param": "row"}}, "next": {"then": "wait"}},
+        "wait": {"type": "Wait", "position": [320, 80], "inputs": {"seconds": 0.05}}
+      },
+      "outputs": {"processed": {"param": "row"}}
+    }
+  }
+}

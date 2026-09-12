@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "Wait for a success message",
+  "main": "Main",
+  "graphs": {
+    "Main": {
+      "entry": "start", "parameters": {}, "outputs": {},
+      "nodes": {
+        "start": {"type": "Start", "inputs": {}, "position": [30, 80], "next": {"then": "wait"}},
+        "visible": {"type": "IsOnScreen", "position": [30, 270], "inputs": {"texture": "", "confidence": 0.97}},
+        "wait": {"type": "WaitUntil", "position": [390, 80], "inputs": {"condition": {"ref": ["visible", "found"]}, "interval_ms": 500, "max_attempts": 5}, "next": {"loop": "attempt", "true": "success", "false": "timeout"}},
+        "attempt": {"type": "Print", "title": "Polling attempt", "position": [770, 430], "inputs": {"value": {"ref": ["wait", "attempt"]}}},
+        "success": {"type": "Print", "title": "Success found", "position": [770, 80], "inputs": {"value": "Success message found on screen."}},
+        "timeout": {"type": "Print", "title": "Not found after 5 checks", "position": [770, 255], "inputs": {"value": "Timed out: success message was not found."}}
+      }
+    }
+  }
+}

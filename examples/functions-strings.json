@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "schema_revision": 3,
+  "main": "Main",
+  "graphs": {
+    "Main": {
+      "entry": "start",
+      "parameters": {},
+      "outputs": {},
+      "nodes": {
+        "call": {
+          "type": "FunctionCall",
+          "function": "Greet",
+          "inputs": {
+            "name": "Ada"
+          },
+          "next": {
+            "then": "print"
+          },
+          "position": [
+            70,
+            120
+          ]
+        },
+        "start": {
+          "type": "Start",
+          "inputs": {},
+          "next": {
+            "then": "call"
+          },
+          "position": [
+            380,
+            120
+          ]
+        },
+        "print": {
+          "type": "Print",
+          "inputs": {
+            "value": {
+              "ref": [
+                "call",
+                "greeting"
+              ]
+            }
+          },
+          "position": [
+            690,
+            120
+          ]
+        }
+      }
+    },
+    "Greet": {
+      "entry": "return",
+      "parameters": {
+        "name": "string"
+      },
+      "return_types": {
+        "greeting": "string",
+        "length": "integer"
+      },
+      "outputs": {},
+      "nodes": {
+        "name": {
+          "type": "FunctionParameter",
+          "parameter": "name",
+          "inputs": {},
+          "position": [
+            70,
+            240
+          ]
+        },
+        "append": {
+          "type": "StringAppend",
+          "inputs": {
+            "a": "Hello ",
+            "b": {
+              "ref": [
+                "name",
+                "value"
+              ]
+            }
+          },
+          "position": [
+            370,
+            100
+          ]
+        },
+        "length": {
+          "type": "StringLength",
+          "inputs": {
+            "text": {
+              "ref": [
+                "name",
+                "value"
+              ]
+            }
+          },
+          "position": [
+            370,
+            330
+          ]
+        },
+        "return": {
+          "type": "FunctionReturn",
+          "inputs": {
+            "greeting": {
+              "ref": [
+                "append",
+                "result"
+              ]
+            },
+            "length": {
+              "ref": [
+                "length",
+                "length"
+              ]
+            }
+          },
+          "position": [
+            710,
+            160
+          ]
+        }
+      },
+      "description": "Build a greeting and return its input name length.",
+      "comments": [
+        {
+          "id": "greeting-note",
+          "text": "Build the greeting and return two typed values",
+          "color": "#596a92",
+          "position": [
+            40,
+            20
+          ],
+          "size": [
+            950,
+            500
+          ],
+          "move_nodes": true
+        }
+      ]
+    }
+  },
+  "name": "Typed functions and strings"
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "Find, offset, click, wait, check",
+  "main": "Main",
+  "graphs": {
+    "Main": {
+      "parameters": {},
+      "entry": "find",
+      "nodes": {
+        "find": {"type": "FindOnScreen", "position": [40, 80], "inputs": {"texture": "button.png"}, "next": {"found": "offset", "not_found": "missing"}},
+        "offset": {"type": "Offset", "position": [300, 80], "inputs": {"x": {"ref": ["find", "x"]}, "y": {"ref": ["find", "y"]}, "dx": 50, "dy": 50}, "next": {"then": "click"}},
+        "click": {"type": "Click", "position": [560, 80], "inputs": {"x": {"ref": ["offset", "x"]}, "y": {"ref": ["offset", "y"]}}, "next": {"then": "wait"}},
+        "wait": {"type": "Wait", "position": [820, 80], "inputs": {"seconds": 0.1}, "next": {"then": "check"}},
+        "check": {"type": "IfOnScreen", "position": [1080, 80], "inputs": {"texture": "confirmation.png"}, "next": {"found": "success", "not_found": "missing"}},
+        "success": {"type": "Log", "position": [1340, 80], "inputs": {"message": "Confirmation found."}},
+        "missing": {"type": "Log", "position": [300, 350], "inputs": {"message": "Texture not found (expected with simulation backend)."}}
+      },
+      "outputs": {}
+    }
+  }
+}
