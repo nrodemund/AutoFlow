@@ -20,6 +20,7 @@ from autoflow.engine import Engine, load_project, save_project
 from autoflow.registry import discover
 from autoflow.migrations import upgrade_project
 from autoflow.screen import WindowsScreen, clipboard_texture, store_texture
+from autoflow.run_control import settings as run_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / "web"
@@ -39,6 +40,22 @@ class Editor:
         self.running = False
         self.engine = None
         self.results = {}
+        self.run_state = "ready"
+        self.active_settings = run_settings({})
+
+    def status(self):
+        engine = self.engine
+        manual = None
+        if engine:
+            with engine.manual_lock:
+                manual = dict(engine.manual_request) if engine.manual_request else None
+        state = self.run_state
+        if self.running and engine:
+            state = ("stopping" if engine.cancel.is_set() else "manual" if manual else "paused" if engine.paused
+                     else "pausing" if not engine.resumed.is_set() else "running")
+        return dict(state=state, text=(engine.status_text or engine.current_node) if engine else "",
+                    steps=engine.steps if engine else 0, settings=self.active_settings,
+                    manual={k:v for k,v in manual.items() if k != "choice"} if manual else None)
 
     def path(self, filename):
         if not isinstance(filename, str) or not re.fullmatch(r"[\w -][\w .-]{0,100}\.json", filename):
@@ -75,6 +92,7 @@ class Editor:
         if not isinstance(project, dict) or project.get("version") != 1:
             raise ValueError("Expected an AutoFlow version 1 project")
         datasets.validate_all(project.get("datasets", {}))
+        run_settings(project)
         graphs = project.get("graphs")
         if not isinstance(graphs, dict) or project.get("main") not in graphs:
             raise ValueError("Project must contain a main graph")
@@ -103,17 +121,24 @@ class Editor:
             if self.running:
                 raise ValueError("A graph is already running")
             self.check_document(project)
+            self.active_settings = run_settings(project)
             self.engine = Engine(project, self.registry, self.projects,
                                  screen=self.screen_factory(self.projects),
                                  log=lambda message: self.event("print", message))
             run_id = uuid.uuid4().hex
             self.running = True
+            self.run_state = "running"
             self.event("info", "Run started · live desktop automation")
             def work():
                 try:
+                    self.engine.current_node = "Starting…"
+                    self.engine.wait(self.active_settings["start_delay"])
                     result = self.engine.run(parameters)
+                    self.engine.checkpoint()
+                    self.run_state = "completed"
                     self.event("success", "Run complete" + (f" · {json.dumps(result)}" if result else ""))
                 except Exception as exc:
+                    self.run_state = "stopped" if self.engine.cancel.is_set() else "error"
                     self.event("error", exc)
                 finally:
                     with self.lock:
@@ -186,7 +211,7 @@ def make_server(editor, port=8765):
                         # Python server is restarted; resume without a page reload.
                         if cursor > editor.sequence:
                             cursor = 0
-                        return self.send(200, {"events": [e for e in editor.events if e["id"] > cursor], "running": editor.running})
+                        return self.send(200, {"events": [e for e in editor.events if e["id"] > cursor], "running": editor.running, "status": editor.status()})
                 files = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/editor-features.js": "editor-features.js"}
                 if path in files:
                     file = STATIC / files[path]
@@ -246,6 +271,17 @@ def make_server(editor, port=8765):
                     result = {"content": base64.b64encode(bundles.export(data["project"], editor.projects)).decode()}
                 elif path == "/api/bundle-import":
                     result = {"project": bundles.unpack(base64.b64decode(data["content"], validate=True), editor.projects, editor.check_document)}
+                elif path == "/api/manual-response":
+                    with editor.lock:
+                        if not editor.running or not editor.engine:
+                            raise ValueError("No graph is running")
+                        editor.engine.answer_manual(data["id"], data["choice"])
+                    result = {"ok": True}
+                elif path == "/api/pause":
+                    with editor.lock:
+                        if editor.running and editor.engine:
+                            editor.engine.toggle_pause()
+                    result = {"ok": True}
                 elif path == "/api/stop":
                     with editor.lock:
                         if editor.engine:

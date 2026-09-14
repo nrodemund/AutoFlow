@@ -5,10 +5,48 @@ automation. Windows x64 Python, Pillow, NumPy and OpenCV binaries are included.
 
 ## Start
 
-Double-click **start.cmd**. The editor opens at **http://127.0.0.1:8765**.
-Keep the starter window open; Ctrl+C shuts down the server. No Python install,
-Node.js, build, account or internet connection is needed. Windows 10/11 x64 is
-the supported bundled platform. PowerShell users can also run `./start.ps1`.
+Double-click **start.cmd** for the standalone Electron desktop app, or launch
+`runtime/electron/AutoFlow.exe` directly. It starts and owns its Python backend
+on an available local port, with no browser or console window to manage.
+No Python install, Node.js, build, account or internet connection is needed.
+Windows 10/11 x64 is the supported bundled platform. PowerShell users can also
+run `./start.ps1`. Keep the entire AutoFlow folder together when moving the app;
+the executable depends on the bundled `desktop`, `autoflow`, and `runtime` files.
+Browser mode remains available with `autoflow.cmd editor` on port 8765.
+
+### Running controls
+
+Graph settings contains **Run controls (main graph)**. These preferences apply
+to the entire run, including called functions, and are saved with the project:
+
+- Show/hide the always-on-top desktop overlay and choose its initial corner.
+  Drag the overlay header to move it during a run. It does not take keyboard focus.
+- Pause/resume shortcut (default **F8**) and Stop shortcut (default **F9**).
+  Use F1-F24, optionally prefixed with Control+, Alt+, or Shift+. Desktop mode
+  registers shortcuts globally during a run and releases them afterward. If a
+  shortcut cannot be registered, the run stops and explains the conflict.
+- Start delay (default 3 seconds) and minimize editor on run (default on).
+
+The overlay shows automatic running/pausing/paused/stopping state and the current
+node. **Set Run Status** supplies a custom text label; give it an empty string to
+restore the automatic node label. The editor also has Pause/Resume and Stop buttons.
+
+**Manual Interaction** (Flow category) accepts a `prompt` string, including a
+connected string node, and waits for your explicit choice. Correct the target
+application manually, then click **Continue** to follow `success`, or **Ignore**
+to follow `failed` (for example, wire Failed to SetField to flag the dataset row).
+Stop cancels without following either branch. The prompt appears in the editor
+and desktop overlay, even when the normal overlay is disabled. F8 does not
+acknowledge the prompt. Use this node in the editor/desktop app, not unattended CLI runs.
+Pause is cooperative at safe node boundaries and within Wait; an active mouse
+action finishes before pausing. Stop cancels waits and OCR and prevents further
+nodes from starting. It does not undo actions already performed. Browser mode
+has toolbar controls; the global shortcuts and desktop overlay require desktop mode.
+
+To rebuild Electron from the pinned lockfile (development only):
+`npm ci --prefix desktop`, `node desktop/node_modules/electron/install.js`, then
+`node scripts/build_desktop.cjs`. The shipped app needs none of these commands.
+Electron and Chromium licenses are retained in `runtime/electron`.
 
 The editor reopens the **last saved project** at startup. On first use it opens
 an Add (Int) -> Print demonstration. Click Run to print `5` in Output Log.
@@ -116,7 +154,9 @@ The hover coordinates are original texture pixels, even when the preview is enla
   Point inputs, `start` and `end`, in physical desktop pixels. Either corner order
   works, including negative coordinates on secondary monitors. Wire the exact
   desired row into `text`, for example `Enoxaparin 40 mg s.c. 21:00`. Matching is
-  whole-line and case-sensitive; only whitespace is normalized. It does not
+  whole-line and case-sensitive by default; only whitespace is normalized.
+  Disable `case_sensitive` to tolerate OCR capitalization errors such as `i.V.`
+  versus `i.v.`; numbers and punctuation must still match. It does not
   accept partial text or substitute similar numbers. Output `point` is the center
   of the first matching line (top to bottom, then left to right). Connect the
   `found` execution branch and `point` to Click; `not_found` returns a null point.
@@ -126,6 +166,10 @@ The hover coordinates are original texture pixels, even when the preview is enla
   language packs produce an error. OCR can misread text; exact comparison is
   against the recognized text. The standalone runtime includes the bindings;
   a separate Python install needs `pip install .[ocr]` on Windows.
+  If the first OCR pass finds no match, black-and-white passes at two thresholds
+  retry the same crop to recover text such as tightly spaced time strings across
+  rendering variations. All passes use the same comparison rules and stop at
+  the first match; a successful first pass incurs no retry cost.
 - **Paste:** send Ctrl+V using the current clipboard. Disable Use clipboard to
   type Text directly without reading or changing the clipboard (Text can be wired
   from Copy or another node). This prevents concurrent clipboard changes from

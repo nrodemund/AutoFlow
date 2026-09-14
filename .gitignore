@@ -6,4 +6,9 @@ __pycache__/
 *.tmp
 *.log
 projects/
-# The runtime binaries are intentionally included.
+# Python runtime remains bundled; rebuild Electron locally from desktop/package-lock.json.
+/runtime/electron/
+/desktop/node_modules/
+/desktop/.smoke-profile/
+/desktop/smoke-result.json
+/desktop/*-preview.png

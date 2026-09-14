@@ -127,6 +127,7 @@ class EditorAPITests(unittest.TestCase):
         self.assertEqual(self.request("/api/bootstrap", headers={"Host": "evil.test"})[0], 403)
 
     def test_run_streams_print_to_console_events(self):
+        self.project["graphs"][self.project["main"]]["run_settings"] = {"start_delay": 0}
         self.assertEqual(self.request("/api/run", {"project": self.project})[0], 200)
         deadline = time.monotonic() + 2
         while self.editor.running and time.monotonic() < deadline:

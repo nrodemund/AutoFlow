@@ -41,6 +41,16 @@ for(const [title,container] of [['Parameters',parameterRows],['Return values',re
 }
 const args=element('textarea');args.rows=3;args.setAttribute('aria-label','Main run arguments');
 const argsLabel=element('label','','Main run arguments (JSON)');argsLabel.append(args);settings.append(argsLabel);
+const runSettingsBox=element('fieldset','run-settings');runSettingsBox.append(element('legend','','Run controls (main graph)'));
+const runFields={};
+for(const [key,label,type,value] of [['overlay','Show desktop overlay','checkbox',true],['minimize','Minimize editor when starting','checkbox',true],['pause_key','Pause / Resume shortcut','text','F8'],['stop_key','Stop shortcut','text','F9'],['start_delay','Start delay (seconds)','number',3],['position','Overlay corner','select','top-right']]){
+ const row=element('label','',label),input=element(type==='select'?'select':'input');
+ if(type==='select')for(const corner of ['top-right','top-left','bottom-right','bottom-left']){const o=element('option','',corner);o.value=corner;input.append(o);}else input.type=type;
+ if(type==='number'){input.min=0;input.max=60;input.step=.1;}
+ input.dataset.default=String(value);runFields[key]=input;row.append(input);runSettingsBox.append(row);
+}
+runSettingsBox.append(element('small','','Desktop shortcuts work in other apps. Use F1–F24, optionally with Control+, Alt+, Shift+. Pause takes effect at the next safe node boundary; Stop cancels waits and OCR.'));
+settings.append(runSettingsBox);
 const settingsError=element('p','error');settings.append(settingsError);
 const actions=element('div','dialog-actions'),deleteFunction=button('Delete function',()=>{
  try{
@@ -61,6 +71,8 @@ function readSignature(container){
  return {types,renames};
 }
 $('graph-settings').onclick=()=>{
+ const saved=project.graphs[project.main].run_settings||{};
+ for(const [key,input] of Object.entries(runFields)){const value=saved[key]??input.dataset.default;if(input.type==='checkbox')input.checked=value===true||value==='true';else input.value=value;}
  const g=graph();functionName.value=graphName;description.value=g.description||'';parameterRows.replaceChildren();returnRows.replaceChildren();
  for(const [name,type] of Object.entries(g.parameters||{}))signatureRow(parameterRows,name,type);
  const returns=g.return_types||Object.fromEntries(Object.entries(g.outputs||{}).map(([name,value])=>[name,ref(value)?kind(g.nodes[value.ref[0]])?.outputs[value.ref[1]]||'reference':typeof value==='string'?'string':'reference']));
@@ -72,8 +84,12 @@ settings.onsubmit=e=>{
   const name=functionName.value.trim(),oldName=graphName,g=graph(),params=readSignature(parameterRows),returns=readSignature(returnRows),argumentsValue=JSON.parse(args.value);
   if(!validName(name)||(name!==oldName&&Object.hasOwn(project.graphs,name)))throw Error('Use a unique function name.');
   if(!object(argumentsValue))throw Error('Run arguments must be a JSON object.');
+  for(const key of ['pause_key','stop_key'])if(!/^(?:(?:Control|Alt|Shift)\+)*F(?:[1-9]|1[0-9]|2[0-4])$/.test(runFields[key].value))throw Error('Use F1-F24 with optional Control+, Alt+, Shift+ modifiers.');
+  if(runFields.pause_key.value.split('+').sort().join('+')===runFields.stop_key.value.split('+').sort().join('+'))throw Error('Pause and Stop need different shortcuts.');
+  if(!Number.isFinite(Number(runFields.start_delay.value))||Number(runFields.start_delay.value)<0||Number(runFields.start_delay.value)>60)throw Error('Start delay must be 0-60 seconds.');
   change(()=>{
    if(name!==oldName){project.graphs[name]=g;delete project.graphs[oldName];if(project.main===oldName)project.main=name;graphName=name;}
+   project.graphs[project.main].run_settings=Object.fromEntries(Object.entries(runFields).map(([key,input])=>[key,input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value]));
    g.description=description.value;g.parameters=params.types;g.return_types=returns.types;
    for(const [id,node] of Object.entries(g.nodes))if(node.type==='FunctionParameter'){
     const renamed=params.renames[node.parameter]||node.parameter;
@@ -141,6 +157,7 @@ async function pasteSelection(){
 }
 window.addEventListener('keydown',e=>{
  if(e.target.closest('input,textarea,select')||document.querySelector('dialog[open]'))return;
+ if(window.getSelection()?.toString()&&(e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='c')return;
  if(e.ctrlKey||e.metaKey){const key=e.key.toLowerCase();if(key==='c'){e.preventDefault();copySelection();}if(key==='v'){e.preventDefault();pasteSelection();}if(key==='a'){e.preventDefault();selectedNodes=new Set(Object.keys(graph().nodes));selected=[...selectedNodes][0];render();}}
  else if(e.key.toLowerCase()==='c'){e.preventDefault();addComment();}
 });

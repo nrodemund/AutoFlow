@@ -23,7 +23,13 @@ def click(ctx, node_id, inputs):
 
 def find_text(ctx, node_id, inputs):
     location = ctx.engine.screen.find_text(inputs["text"], checked_point(inputs["start"]),
-        checked_point(inputs["end"]), inputs["language"], ctx.engine.cancel)
+        checked_point(inputs["end"]), inputs["language"], ctx.engine.cancel, inputs["case_sensitive"])
+    diagnostics = getattr(ctx.engine.screen, "last_ocr_diagnostics", None)
+    if location is None and isinstance(diagnostics, dict):
+        from json import dumps
+        ctx.engine.log("OCR no exact match: " + dumps({"node": node_id, "requested": inputs["text"],
+            "language": inputs["language"], "case_sensitive": inputs["case_sensitive"],
+            **diagnostics}, ensure_ascii=False))
     return {"found": location is not None,
             "point": {"x": location[0], "y": location[1]} if location is not None else None}, "found" if location is not None else "not_found"
 
@@ -76,10 +82,10 @@ NODES = [
               defaults={"texture": "", "confidence": 97}, pure=True, category="Screen")]
 
 NODES += [
-    NodeType("FindTextOnScreen", {"text": "string", "start": "reference:Point", "end": "reference:Point", "language": "string"},
+    NodeType("FindTextOnScreen", {"text": "string", "start": "reference:Point", "end": "reference:Point", "language": "string", "case_sensitive": "bool"},
              {"found": "bool", "point": "reference:Point?"}, ("found", "not_found"), find_text,
-             "Local OCR inside the rectangle between Start and End (physical screen pixels). Exact whole-line match, case-sensitive; whitespace is normalized. Returns the center of the first match, top to bottom. Language blank uses Windows settings (or enter de-DE).",
-             defaults={"text": "", "start": {"x": 0, "y": 0}, "end": {"x": 500, "y": 500}, "language": ""}, title="Find Text on Screen (OCR)", category="Screen"),
+             "Local OCR inside the rectangle between Start and End (physical screen pixels). Exact whole-line match; whitespace is normalized. Disable Case sensitive to ignore OCR capitalization errors. Returns the center of the first match, top to bottom. Language blank uses Windows settings (or enter de-DE).",
+             defaults={"text": "", "start": {"x": 0, "y": 0}, "end": {"x": 500, "y": 500}, "language": "", "case_sensitive": True}, title="Find Text on Screen (OCR)", category="Screen"),
     NodeType("FindPointOnScreen", {"texture": "string", "confidence": "integer", "offset_x": "integer", "offset_y": "integer"},
              {"found": "bool", "point": "reference:Point?"}, ("found", "not_found"), find_point,
              "Find a texture and add its pixel offset. Click the enlarged texture to choose the offset.",

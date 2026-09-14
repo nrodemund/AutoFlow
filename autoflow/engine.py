@@ -1,6 +1,7 @@
 """Synchronous execution with separate execution pins and data references."""
 from autoflow import datatypes as json
 import threading
+import time
 from pathlib import Path
 from autoflow.migrations import upgrade_project
 from autoflow.datatypes import checked, Point
@@ -18,7 +19,7 @@ class SimulationScreen:
     def find(self, texture, confidence=.97):
         return None
 
-    def find_text(self, text, start, end, language="", cancel=None):
+    def find_text(self, text, start, end, language="", cancel=None, case_sensitive=True):
         return None
 
     def click(self, x, y):
@@ -65,7 +66,67 @@ class Engine:
         self.max_steps, self.max_depth = max_steps, max_depth
         self.steps = 0
         self.cancel = threading.Event()
+        self.resumed = threading.Event()
+        self.resumed.set()
+        self.paused = False
+        self.current_node = ""
+        self.manual_request = None
+        self.manual_lock = threading.Lock()
+        self.status_text = ""
         self.validate()
+
+    def manual_interaction(self, prompt):
+        import uuid
+        request = {"id": uuid.uuid4().hex, "prompt": prompt, "choice": None}
+        with self.manual_lock:
+            self.manual_request = request
+        try:
+            while True:
+                if self.cancel.wait(.05):
+                    raise GraphError("Execution cancelled")
+                with self.manual_lock:
+                    if request["choice"] is not None:
+                        return request["choice"]
+        finally:
+            with self.manual_lock:
+                self.manual_request = None
+
+    def answer_manual(self, request_id, choice):
+        if choice not in ("success", "failed"):
+            raise ValueError("Choose Continue or Ignore")
+        with self.manual_lock:
+            request = self.manual_request
+            if not request or request["id"] != request_id or request["choice"] is not None:
+                raise ValueError("This manual interaction is no longer waiting")
+            request["choice"] = choice
+
+    def toggle_pause(self):
+        if self.manual_request is not None:
+            return  # Pause shortcut must never acknowledge a manual decision.
+        if self.resumed.is_set():
+            self.resumed.clear()
+        else:
+            self.resumed.set()
+
+    def checkpoint(self):
+        try:
+            while not self.resumed.is_set():
+                self.paused = True
+                if self.cancel.wait(.05):
+                    raise GraphError("Execution cancelled")
+            if self.cancel.is_set():
+                raise GraphError("Execution cancelled")
+        finally:
+            self.paused = False
+
+    def wait(self, seconds):
+        remaining = seconds
+        while remaining > 0:
+            self.checkpoint()
+            began = time.monotonic()
+            self.cancel.wait(min(.05, remaining))
+            remaining -= time.monotonic() - began
+        self.checkpoint()
 
     def validate(self):
         from autoflow.datasets import validate_all
@@ -175,8 +236,7 @@ class Context:
         return value
 
     def check(self):
-        if self.engine.cancel.is_set():
-            raise GraphError("Execution cancelled")
+        self.engine.checkpoint()
 
     def walk(self, node_id):
         while node_id:
@@ -198,6 +258,9 @@ class Context:
             inputs = {key: value if key in kind.deferred_inputs else self.resolve(value)
                       for key, value in (kind.defaults | node.get("inputs", {})).items()}
             inputs = {key: value if key in kind.deferred_inputs else checked(value, kind.inputs[key]) for key, value in inputs.items()}
+            self.check()
+            if not kind.pure:
+                self.engine.current_node = f"{node_id} · {kind.title or kind.name}"
             outputs, flow = kind.execute(self, node_id, inputs)
             if set(outputs) != set(kind.outputs) or (flow is not None and flow not in kind.flows):
                 raise GraphError(f"Invalid result from node type {kind.name}")

@@ -193,17 +193,37 @@ class WindowsScreen:
         self.input.click(x, y)
         return f"Clicked ({x}, {y})"
 
-    def find_text(self, text, start, end, language="", cancel=None):
+    def find_text(self, text, start, end, language="", cancel=None, case_sensitive=True):
         from autoflow.ocr import rectangle, normalized, recognize, exact_position
         if not isinstance(text, str) or not normalized(text):
             raise ValueError("OCR search text must be a nonempty string")
         left, top, right, bottom = rectangle(start, end)
+        self.last_ocr_diagnostics = {"rectangle": (left, top, right, bottom), "passes": []}
         image, origin = self.capture()
         x, y = origin
         if left < x or top < y or right > x + image.width or bottom > y + image.height:
             raise ValueError("OCR rectangle must be inside the virtual desktop")
         crop = image.crop((left - x, top - y, right - x, bottom - y))
-        return exact_position(recognize(crop, language, cancel), text, (left, top))
+        def scan(pixels, label):
+            lines = recognize(pixels, language, cancel)
+            self.last_ocr_diagnostics["passes"].append({"mode": label, "lines": [line.text for line in lines]})
+            return exact_position(lines, text, (left, top), case_sensitive)
+        location = scan(crop, "original")
+        if location is not None:
+            return location
+        # Windows OCR can omit tightly spaced time strings in antialiased UI
+        # text. Retry the same crop in black and white, without relaxing the
+        # comparison or substituting characters/numbers in recognized text.
+        from PIL import ImageOps
+        grayscale = ImageOps.grayscale(crop)
+        # Small rendering differences change which antialiased edge pixels
+        # belong to a glyph. Check two thresholds, retaining exact comparison.
+        for threshold in (160, 180):
+            binary = grayscale.point(lambda value: 255 if value > threshold else 0)
+            location = scan(binary, f"threshold {threshold}")
+            if location is not None:
+                return location
+        return None
 
     @property
     def input(self):

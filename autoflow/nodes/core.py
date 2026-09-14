@@ -36,7 +36,7 @@ def wait(ctx, node_id, inputs):
     milliseconds = integer(inputs["milliseconds"])
     if milliseconds < 0:
         raise ValueError("milliseconds must be nonnegative")
-    ctx.engine.cancel.wait(milliseconds / 1000)
+    ctx.engine.wait(milliseconds / 1000)
     ctx.check()
     return {}, "then"
 

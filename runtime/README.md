@@ -36,6 +36,13 @@ Ordinary app startup requires no network or package installation.
 
 Do not remove this directory when distributing the standalone Windows app.
 
+`electron/` contains the Windows x64 Electron 42.11.3 desktop runtime, pinned in
+`desktop/package-lock.json`. Its `AutoFlow.exe` loads the local desktop shell and
+bundled Python backend. Keep this directory with the rest of the project. Electron
+and Chromium license notices are retained next to the executable. See README.md
+for the reproducible desktop build commands; no Node/npm installation is needed
+to run the shipped app.
+
 Local OCR additionally bundles PyWinRT 3.2.1 (runtime, Foundation, Collections,
 Globalization, Graphics.Imaging, Storage.Streams, Media.Ocr) and typing-extensions
 4.15.0, with the same verified-wheel manifest. Recognition uses the Windows OCR

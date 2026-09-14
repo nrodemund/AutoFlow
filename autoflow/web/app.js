@@ -471,7 +471,7 @@ async function run() {
 function setRunning(value) {running=value;$('run').disabled=value;$('stop').disabled=!value;$('run-state').textContent=value?'Running…':'Ready';}
 async function poll() {
   if(polling)return;polling=true;
-  try {const data=await api('events?after='+cursor);for(const event of data.events){log(event.kind,event.message,event.time);cursor=event.id;}setRunning(data.running);if(!data.running)await applyRunDatasets();}
+  try {const data=await api('events?after='+cursor);for(const event of data.events){log(event.kind,event.message,event.time);cursor=event.id;}setRunning(data.running);if(data.status){updateManualPrompt(data.status.manual);$('run-state').textContent=data.status.state+(data.running?' · '+data.status.text:'');$('pause-run').disabled=!data.running||!!data.status.manual;$('pause-run').textContent=['paused','pausing'].includes(data.status.state)?'Resume':'Pause';}if(!data.running)await applyRunDatasets();}
   catch(error){$('run-state').textContent='Server disconnected';}
   finally{polling=false;}
 }
@@ -517,9 +517,31 @@ $('hide-details').onclick=()=>document.querySelector('.details').classList.remov
 $('zoom-in').onclick=()=>zoom(1.15);$('zoom-out').onclick=()=>zoom(1/1.15);$('fit').onclick=fit;
 $('undo').onclick=()=>restoreHistory(undo,redo);$('redo').onclick=()=>restoreHistory(redo,undo);
 $('save').onclick=save;$('open').onclick=openDialog;$('run').onclick=run;
+const pauseRun=button('Pause',async()=>{try{await api('pause',{});}catch(error){report(error);}});pauseRun.id='pause-run';pauseRun.disabled=true;$('stop').before(pauseRun);
 $('stop').onclick=async()=>{try{await api('stop',{});}catch(error){report(error);}};
 $('filename').oninput=mark;
 $('clear-console').onclick=()=>$('console-lines').replaceChildren();
+const logBox=$('console-lines');
+logBox.tabIndex=0;
+logBox.addEventListener('pointerdown',()=>logBox.focus({preventScroll:true}));
+logBox.addEventListener('keydown',event=>{
+  // Leave native text copy alone; never route log shortcuts to graph nodes.
+  event.stopPropagation();
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){
+    event.preventDefault();const range=document.createRange();range.selectNodeContents(logBox);
+    const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+  }
+});
+async function copyLog(){
+  const text=[...logBox.children].map(line=>[...line.children].map(child=>child.textContent).join(' ')).join('\n');
+  try{await navigator.clipboard.writeText(text);toast('Output Log copied');}
+  catch(error){
+    const field=element('textarea');field.value=text;field.style.position='fixed';field.style.opacity='0';document.body.append(field);field.select();
+    const copied=document.execCommand('copy');field.remove();logBox.focus({preventScroll:true});
+    if(copied)toast('Output Log copied');else report(Error('Could not copy. Select log text and press Ctrl+C.'));
+  }
+}
+const copyLogButton=button('Copy Log',copyLog);copyLogButton.id='copy-log';$('clear-console').before(copyLogButton);
 $('export').onclick=async()=>{try{const data=await api('export',{project});downloadData(data.content,($('filename').value||'project.json').replace(/\.json$/i,'')+'.zip');toast('Exported project, datasets and referenced assets.');}catch(error){report(error);}};
 $('new-project').onclick=()=>{
   if(!discard())return;
@@ -629,3 +651,12 @@ $('apply-dataset-result').onclick=()=>{if(!pendingDatasetResult)return;change(()
   try {const data=await api('bootstrap');catalog=Object.fromEntries(data.nodes.map(n=>[n.name,n]));renderPalette();setProject(data.project,data.filename,data.saved!==false);if(['GetDataset','FunctionCall','StringAppend'].some(name=>!catalog[name]))report(Error('AutoFlow is still running an older backend. Restart AutoFlow to enable the latest nodes. Save or export unsaved edits before refreshing.'));if(data.warning)report(Error(data.warning));await poll();setInterval(poll,350);}
   catch(error){log('error',error.message);$('details-content').textContent='Could not load the editor. Restart AutoFlow and refresh.';}
 })();
+
+let activeManualId=null;
+const manualPanel=element('section');manualPanel.id='manual-prompt';manualPanel.hidden=true;
+manualPanel.setAttribute('role','region');manualPanel.setAttribute('aria-label','Manual interaction');
+const manualText=element('p');
+async function manualAnswer(choice){try{await api('manual-response',{id:activeManualId,choice});manualPanel.hidden=true;}catch(error){report(error);}}
+manualPanel.append(element('strong','','Your action needed'),manualText,button('Continue',()=>manualAnswer('success')),button('Ignore',()=>manualAnswer('failed')),button('Stop',()=>api('stop',{}).catch(report)));
+document.body.append(manualPanel);
+function updateManualPrompt(request){activeManualId=request?.id||null;manualPanel.hidden=!request;manualText.textContent=request?.prompt||'';}

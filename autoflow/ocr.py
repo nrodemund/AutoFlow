@@ -31,8 +31,11 @@ def rectangle(start, end):
     return left, top, right, bottom
 
 
-def exact_position(lines, text, origin):
-    matches = sorted((line for line in lines if normalized(line.text) == normalized(text)),
+def exact_position(lines, text, origin, case_sensitive=True):
+    def key(value):
+        value = normalized(value)
+        return value if case_sensitive else value.casefold()
+    matches = sorted((line for line in lines if key(line.text) == key(text)),
                      key=lambda line: (line.box[1], line.box[0]))
     if not matches:
         return None

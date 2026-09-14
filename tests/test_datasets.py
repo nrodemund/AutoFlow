@@ -60,7 +60,9 @@ class DatasetTests(unittest.TestCase):
         from autoflow.engine import SimulationScreen
         with tempfile.TemporaryDirectory() as d:
             editor=Editor(d,screen_factory=lambda _:SimulationScreen())
-            run_id=editor.run(load_project(ROOT/'examples/dataset-demo.json'),{})
+            project=load_project(ROOT/'examples/dataset-demo.json')
+            project['graphs'][project['main']]['run_settings']={'start_delay':0}
+            run_id=editor.run(project,{})
             for _ in range(100):
                 if not editor.running:break
                 time.sleep(.01)
