@@ -48,6 +48,23 @@ class FunctionTests(unittest.TestCase):
 
 
 class StringTests(unittest.TestCase):
+    def test_regex_match(self):
+        registry=discover()
+        for text,pattern,expected in [('ABC12',r'[A-Z]+\d{2}',True),
+                                      ('ABC',r'[A-Z]+\d{2}',False),
+                                      ('x123y',r'\d+',False),('123',r'\d+',True),
+                                      ('123\n',r'\d+',False),
+                                      ('abc','(?i)ABC',True),
+                                      ('','',True),('abc','',False),('',r'\d+',False),
+                                      ('abc','[',False),('abc','(',False),
+                                      ('abc',r'\q',False),('aaa','a{3,2}',False)]:
+            with self.subTest(text=text,pattern=pattern):
+                doc={'version':1,'schema_revision':3,'main':'Main','graphs':{
+                    'Main':{'entry':'regex','parameters':{},
+                            'outputs':{'matches':{'ref':['regex','result']}},
+                            'nodes':{'regex':{'type':'StringRegexMatch','inputs':{'text':text,'pattern':pattern}}}}}}
+                self.assertEqual(Engine(doc,registry).run(),{'matches':expected})
+
     def test_string_operations(self):
         registry=discover()
         cases=[('StringAppend',{'a':'a','b':'b'},'ab'),('StringLeft',{'text':'abc','length':2},'ab'),

@@ -1,4 +1,6 @@
 """Unicode string operations with Python slicing and search semantics."""
+import re
+
 from autoflow.registry import NodeType
 
 
@@ -7,12 +9,21 @@ def count(value):
     return value
 
 
+def regex_match(inputs):
+    """Check the entire input string against a Python regular expression."""
+    try:
+        return {'result': re.fullmatch(inputs['pattern'], inputs['text']) is not None}
+    except re.error:
+        return {'result': False}
+
+
 def node(name, inputs, outputs, operation, defaults):
     return NodeType(name, inputs, outputs, (), lambda c, n, i: (operation(i), None),
                     pure=True, defaults=defaults, category='Strings', title=name.replace('String', 'String '))
 
 
 NODES = [
+    node('StringRegexMatch', {'text':'string','pattern':'string'}, {'result':'bool'}, regex_match, {'text':'','pattern':''}),
     node('StringAppend', {'a':'string','b':'string'}, {'result':'string'}, lambda i: {'result':i['a']+i['b']}, {'a':'','b':''}),
     node('StringLeft', {'text':'string','length':'integer'}, {'result':'string'}, lambda i: {'result':i['text'][:count(i['length'])]}, {'text':'','length':1}),
     node('StringRight', {'text':'string','length':'integer'}, {'result':'string'}, lambda i: {'result':i['text'][-count(i['length']):] if i['length'] else ''}, {'text':'','length':1}),
