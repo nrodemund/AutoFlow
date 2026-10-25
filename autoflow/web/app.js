@@ -619,6 +619,24 @@ function renderDatasetList(){
  }
 }
 function datasetChange(fn){change(fn);renderDatasetTable();}
+async function reloadDatasetFile(file,target){
+ if(!file||!target)return;
+ const content=await fileBase64(file),result=await api('dataset-import',{name:file.name,content});
+ if(project!==target.project)throw Error('Project changed during reload. Try again.');
+ if(JSON.stringify(project.datasets[target.name])!==target.baseline)throw Error('Dataset changed during reload. Try again.');
+ change(()=>project.datasets[target.name]=result.dataset);
+ if(activeDataset===target.name){datasetPage=0;datasetSort={};$('dataset-search').value='';renderDatasetTable();}
+ if(result.sheets.length>1)log('info','Reloaded first Excel sheet: '+result.sheets[0]+'. LoadDataset node can select another sheet by name.');
+}
+let datasetReloadTarget=null;
+$('dataset-reload').onclick=()=>{
+ datasetReloadTarget={project,name:activeDataset,baseline:JSON.stringify(project.datasets[activeDataset])};
+ $('dataset-reload-file').click();
+};
+$('dataset-reload-file').onchange=async e=>{
+ const target=datasetReloadTarget;datasetReloadTarget=null;
+ try{await reloadDatasetFile(e.target.files[0],target);}catch(error){report(error);}finally{e.target.value='';}
+};
 function datasetColumnType(data,column){
  const explicit=({text:'string',number:'float',boolean:'bool'})[data.types?.[column]]||data.types?.[column];
  if(['string','integer','float','bool','bytes'].includes(explicit))return explicit;

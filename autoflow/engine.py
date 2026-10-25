@@ -322,7 +322,12 @@ class Context:
         self.engine.checkpoint()
 
     def walk(self, node_id):
+        visits = {}
         while node_id:
+            self.check()
+            visits[node_id] = visits.get(node_id, 0) + 1
+            if visits[node_id] > self.engine.max_steps:
+                raise GraphError(f'Execution flow cycle limit reached at {node_id} ({self.engine.max_steps} visits)')
             node = self.graph["nodes"][node_id]
             flow = self.execute(node_id)
             node_id = node.get("next", {}).get(flow)
@@ -330,8 +335,6 @@ class Context:
     def tick(self):
         self.check()
         self.engine.steps += 1
-        if self.engine.steps > self.engine.max_steps:
-            raise GraphError("Execution step limit reached")
 
     def execute(self, node_id):
         self.tick()

@@ -8,8 +8,8 @@ def wait_until(ctx, node_id, inputs):
     interval, attempts = inputs["interval_ms"], inputs["max_attempts"]
     if type(interval) is not int or interval < 0:
         raise ValueError("Loop interval must be a finite nonnegative number of milliseconds")
-    if type(attempts) is not int or not 1 <= attempts <= 10000:
-        raise ValueError("Max attempts must be an integer between 1 and 10000")
+    if type(attempts) is not int or attempts < 1:
+        raise ValueError("Max attempts must be a positive integer")
     upstream = dict(ctx.values)
     next_check = time.monotonic()
     for attempt in range(1, attempts + 1):

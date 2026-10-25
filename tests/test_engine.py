@@ -50,7 +50,7 @@ class EngineTests(unittest.TestCase):
         graph = self.project["graphs"]["Main"]
         graph["entry"] = "done"
         graph["nodes"]["done"]["next"] = {"then": "done"}
-        with self.assertRaisesRegex(GraphError, "step limit"):
+        with self.assertRaisesRegex(GraphError, "flow cycle limit"):
             self.engine(max_steps=3).run()
 
     def test_recursive_function_limit(self):

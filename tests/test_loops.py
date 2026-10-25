@@ -11,6 +11,73 @@ def project(nodes, outputs=None, datasets=None):
 
 
 class LoopTests(unittest.TestCase):
+    def test_1800_rows_with_15_string_nodes_in_called_function(self):
+        logs = []
+        p = project({
+            'loop': {'type': 'ForEachRow', 'inputs': {'dataset': {'ref': ['data', 'dataset']}}, 'next': {'body': 'call'}},
+            'data': {'type': 'GetDataset', 'inputs': {'name': 'Data'}},
+            'call': {'type': 'FunctionCall', 'function': 'Process', 'inputs': {'row': {'ref': ['loop', 'row']}}, 'next': {'then': 'print'}},
+            'print': {'type': 'Print', 'inputs': {'value': {'ref': ['call', 'value']}}}},
+            datasets={'Data': {'columns': ['id'], 'rows': [{'id': i} for i in range(1800)]}})
+        nodes = {f's{i}': {'type': 'StringAppend', 'inputs': {
+            'a': 'row' if i == 0 else {'ref': [f's{i-1}', 'result']}, 'b': 'x'}} for i in range(15)}
+        nodes['return'] = {'type': 'FunctionReturn', 'inputs': {'value': {'ref': ['s14', 'result']}}}
+        p['graphs']['Process'] = {'entry': 'return', 'parameters': {'row': 'dict'},
+                                  'return_types': {'value': 'string'}, 'nodes': nodes}
+        engine = Engine(p, discover(), log=logs.append)
+        engine.run()
+        self.assertEqual(logs, ['row' + 'x' * 15] * 1800)
+        self.assertGreater(engine.steps, 27000)
+
+    def test_default_boundary_and_custom_limit(self):
+        for count, limit, fails in [(10000, None, False), (10001, None, True), (10001, 10001, False),
+                                    (4, 3, True), (3, 3, False)]:
+            with self.subTest(count=count, limit=limit):
+                inputs = {'count': count}
+                if limit is not None: inputs['max_iterations'] = limit
+                engine = Engine(project({'loop': {'type': 'Repeat', 'inputs': inputs}}), discover())
+                if fails:
+                    with self.assertRaisesRegex(GraphError, 'Loop iteration limit reached'):engine.run()
+                else:engine.run()
+
+    def test_all_loop_limits_are_independent_of_body_and_nesting(self):
+        for kind, inputs in [('ForLoop', {'start': 0, 'stop': 3}), ('Repeat', {'count': 3}),
+                             ('ForEach', {'items': ['a', 'b', 'c']})]:
+            with self.subTest(kind=kind):
+                logs = []
+                p = project({'loop': {'type': 'Repeat', 'inputs': {'count': 2, 'max_iterations': 2}, 'next': {'body': 'inner'}},
+                    'inner': {'type': kind, 'inputs': inputs | {'max_iterations': 3}, 'next': {'body': 'print'}},
+                    'print': {'type': 'Print', 'inputs': {'value': 'body'}, 'next': {'then': 'more'}},
+                    'more': {'type': 'Print', 'inputs': {'value': 'more'}}})
+                Engine(p, discover(), log=logs.append, max_steps=1).run()
+                self.assertEqual(logs, ['body', 'more'] * 6)
+
+    def test_dataset_limit_reports_loop_and_preserves_exact_body_count(self):
+        logs = []
+        p = project({'loop': {'type': 'ForEachRow', 'inputs': {'dataset': {'ref': ['data', 'dataset']}, 'max_iterations': 2},
+                               'next': {'body': 'print'}},
+                     'data': {'type': 'GetDataset', 'inputs': {'name': 'Data'}},
+                     'print': {'type': 'Print', 'inputs': {'value': {'ref': ['loop', 'index']}}}},
+                    datasets={'Data': {'columns': ['id'], 'rows': [{'id': i} for i in range(3)]}})
+        with self.assertRaisesRegex(GraphError, r'Node loop .*iteration limit reached \(2\)'):
+            Engine(p, discover(), log=logs.append).run()
+        self.assertEqual(logs, ['0', '1'])
+
+    def test_invalid_iteration_limits(self):
+        for value in (0, -1, True, 2.5):
+            with self.subTest(value=value), self.assertRaises(GraphError):
+                Engine(project({'loop': {'type': 'Repeat', 'inputs': {'count': 0, 'max_iterations': value}}}), discover()).run()
+
+    def test_polling_nodes_use_their_own_attempt_limits(self):
+        p = project({'loop': {'type': 'WaitUntil', 'inputs': {
+            'condition': False, 'interval_ms': 0, 'max_attempts': 10001}}},
+            {'attempts': {'ref': ['loop', 'attempt']}})
+        self.assertEqual(Engine(p, discover(), max_steps=1).run(), {'attempts': 10001})
+        p = project({'loop': {'type': 'WaitUntilAB', 'inputs': {
+            'a': False, 'b': False, 'interval_ms': 1, 'timeout_ms': 5000, 'max_attempts': 2}}})
+        with self.assertRaisesRegex(GraphError, 'attempt limit reached'):
+            Engine(p, discover()).run()
+
     def run_loop(self, kind, inputs):
         logs = []
         p = project({'loop': {'type': kind, 'inputs': inputs, 'next': {'body': 'print', 'completed': 'done'}},
@@ -49,8 +116,8 @@ class LoopTests(unittest.TestCase):
             with self.assertRaisesRegex(GraphError, 'active loop'):
                 Engine(project({'loop': {'type': action, 'inputs': {}}}), discover()).run()
         for kind, inputs in [('Repeat', {'count': 100}), ('WhileLoop', {'condition': True})]:
-            with self.assertRaisesRegex(GraphError, 'step limit'):
-                Engine(project({'loop': {'type': kind, 'inputs': inputs}}), discover(), max_steps=10).run()
+            with self.assertRaisesRegex(GraphError, 'iteration limit'):
+                Engine(project({'loop': {'type': kind, 'inputs': inputs | {'max_iterations': 10}}}), discover()).run()
 
     def test_while_rechecks_and_limits(self):
         registry = discover()

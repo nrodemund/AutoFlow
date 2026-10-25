@@ -20,7 +20,7 @@ def for_each(ctx, node_id, inputs):
     count = len(items)
     return iterate(ctx, node_id, ({"item": item, "index": index, "count": count}
                                   for index, item in enumerate(items)),
-                   lambda: {"item": None, "index": None, "count": count})
+                   lambda: {"item": None, "index": None, "count": count}, inputs['max_iterations'])
 
 
 def call_function(ctx, node_id, inputs):
@@ -48,8 +48,8 @@ def offset(ctx, node_id, inputs):
 
 NODES = [
     NodeType("LoadCSVFromFile", {"path": "string"}, {"rows": "reference:list"}, ("then",), load_csv),
-    NodeType("ForEach", {"items": "reference"}, {"item": "reference", "index": "integer?", "count": "integer"},
-             ("body", "completed"), for_each, category="Loops"),
+    NodeType("ForEach", {"items": "reference", "max_iterations": "integer"}, {"item": "reference", "index": "integer?", "count": "integer"},
+             ("body", "completed"), for_each, defaults={'max_iterations': 10000}, category="Loops"),
     NodeType("CallFunction", {"graph": "string", "arguments": "dict"}, {"result": "dict"}, ("then",), call_function),
     NodeType("Log", {"message": "reference"}, {}, ("then",), log),
     NodeType("Wait", {"milliseconds": "integer"}, {}, ("then",), wait, defaults={"milliseconds": 500}),

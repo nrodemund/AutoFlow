@@ -18,7 +18,8 @@ def main():
         p.add_argument("project", type=Path)
         if command == "run":
             p.add_argument("--parameters", default="{}", help="Main graph parameters as JSON")
-            p.add_argument("--max-steps", type=int, default=10000)
+            p.add_argument("--max-cycle-visits", "--max-steps", dest="max_steps", type=int, default=10000,
+                           help="Maximum visits to one node in a single execution path; loop iterations use each loop's Max iterations")
             p.add_argument("--simulate-screen", action="store_true", help="Disable real screen capture")
     args = parser.parse_args()
     try:

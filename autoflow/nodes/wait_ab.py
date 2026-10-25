@@ -2,20 +2,21 @@
 import time
 from autoflow.registry import NodeType
 from autoflow.nodes.math_nodes import integer
-from autoflow.engine import GraphError
 
 
 def wait_ab(ctx, node_id, inputs):
     interval, timeout = integer(inputs["interval_ms"]), integer(inputs["timeout_ms"])
+    attempts = integer(inputs['max_attempts'])
+    if attempts < 1:
+        raise ValueError('Max attempts must be positive')
     if interval < 1 or timeout < 0:
         raise ValueError("Interval must be at least 1 ms; timeout must be nonnegative")
     start = time.monotonic()
     attempt = 0
     while True:
         ctx.check()
-        ctx.engine.steps += 1
-        if ctx.engine.steps > ctx.engine.max_steps:
-            raise GraphError("Execution step limit reached")
+        if attempt >= attempts:
+            raise ValueError(f'Wait Until A/B attempt limit reached ({attempts})')
         attempt += 1
         next_check = time.monotonic() + interval / 1000
         for name in ("a", "b"):
@@ -32,8 +33,8 @@ def wait_ab(ctx, node_id, inputs):
 
 
 NODES = [NodeType(
-    "WaitUntilAB", {"a": "bool", "b": "bool", "interval_ms": "integer", "timeout_ms": "integer"},
+    "WaitUntilAB", {"a": "bool", "b": "bool", "interval_ms": "integer", "timeout_ms": "integer", "max_attempts": "integer"},
     {"attempt": "integer", "elapsed_ms": "integer"}, ("a", "b", "timeout"), wait_ab,
     "Recheck A, then B, until one is true or time expires. A wins if both are true. First check is immediate.",
-    defaults={"a": False, "b": False, "interval_ms": 500, "timeout_ms": 5000},
+    defaults={"a": False, "b": False, "interval_ms": 500, "timeout_ms": 5000, "max_attempts": 10000},
     title="Wait Until A/B", category="Flow", deferred_inputs=("a", "b"))]

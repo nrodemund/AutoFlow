@@ -396,6 +396,10 @@ Undo reverses edits. CSV and Excel buttons download the current table. CSV has
 no declared column types; imports infer types conservatively. Use project JSON or
 XLSX for typed data. XLSX exports text as literal strings, not formulas.
 
+Use **Reload from file…** in an open dataset to select an updated CSV or XLSX.
+It replaces the columns, inferred types, and rows while keeping the dataset name
+and graph connections. Undo restores the previous data. Excel reloads the first sheet.
+
 Dataset nodes: GetRows, GetRow, GetField, RowCount, FindRows (matching indices),
 SetField, SetRow, AppendRow, DeleteRow, SortDataset, LoadDataset, SaveDataset,
 DatasetToDict, DatasetToSet, GetDataset, ForEachRow and GetRowField.
@@ -484,9 +488,20 @@ an explicit serialization implementation (no dynamic class loading or pickle).
 Connect execution to the loop's input, work to Body, and subsequent steps to
 Completed. Row/Item/Index are available inside Body and become None after the
 loop. Count is the snapshot/range size (or iterations begun for While Loop).
-Loops check cancellation and consume the run's step budget even with an empty
-body. While Loop also has a configurable iteration limit; exceeding it fails
-explicitly. Function calls have their own loop scope.
+Each loop has a **Max iterations** input, defaulting to **10,000**. It counts
+only iterations of that loop, not nodes in its body, pure-node evaluations, or
+called functions. The counter resets for each invocation; nested loops have
+independent limits. Increase Max iterations on a loop to process larger datasets.
+Exceeding the limit reports that loop and stops before the next iteration.
+For example, 1,800 rows calling a function with 15 nodes count as 1,800 iterations.
+Loops check cancellation even with an empty body. Function calls have their own
+loop scope. Wait Until uses its **Max attempts** input; Wait Until A/B has its
+own Max attempts (default 10,000) as well as its timeout.
+
+There is no run-wide node-execution ceiling. The diagnostic step count still
+shows node executions. A separate guard catches execution wires that cycle
+through the same node repeatedly within one path. CLI users can configure that
+guard with `--max-cycle-visits` (`--max-steps` remains an alias).
 
 
 ### Copy/paste and comment boxes
