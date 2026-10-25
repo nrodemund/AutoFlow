@@ -21,9 +21,41 @@ function rewrite(value,visit){
 }
 
 // A row editor keeps signatures visible without requiring hand-written JSON.
+function mainParameterValue(name,type){
+ const main=project.graphs[project.main];
+ return copy(Object.hasOwn(project.editor?.arguments||{},name)?project.editor.arguments[name]:Object.hasOwn(main.parameter_defaults||{},name)?main.parameter_defaults[name]:fallback(type));
+}
+function parameterValueInput(name,type,value){
+ const input=element('input','parameter-value');input.setAttribute('aria-label','Value for '+(name||'new parameter'));
+ if(type==='bool'){input.type='checkbox';input.checked=value===true;input.readValue=()=>input.checked;}
+ else{
+  input.type='text';input.value=typeof value==='string'?value:JSON.stringify(value);
+  input.readValue=()=>parseLiteral(input.value,type);
+ }
+ return input;
+}
+const parameterHeading=element('div','section-title');parameterHeading.append(element('span','','PARAMETERS'),button('+',()=>$('graph-settings').click()));
+const parameterList=element('div');parameterList.id='parameter-list';
+$('graph-list').after(parameterHeading,parameterList);
+function renderParameters(){
+ parameterList.replaceChildren();
+ for(const [name,type] of Object.entries(graph().parameters||{})){
+  const row=element('div','parameter-entry'),add=button(name,()=>addNode('FunctionParameter',undefined,{},{parameter:name}));
+  add.draggable=true;add.title='Drag or click to add a reader for '+name+' ('+type+'). Add it as many times as needed.';
+  add.ondragstart=e=>{e.dataTransfer.setData('application/x-autoflow-parameter',name);e.dataTransfer.effectAllowed='copy';};
+  row.append(add);
+  if(graphName===project.main){
+   const input=parameterValueInput(name,type,mainParameterValue(name,type));
+   input.onchange=()=>{try{const value=input.readValue();change(()=>{graph().parameter_defaults ||= {};graph().parameter_defaults[name]=value;project.editor ||= {};project.editor.arguments ||= {};project.editor.arguments[name]=value;});}catch(error){report(error);}};
+   row.append(input);
+  }
+  parameterList.append(row);
+ }
+ if(!parameterList.children.length)parameterList.append(element('small','empty-state','Add parameters with +. Drag them into the graph wherever needed.'));
+}
 const settings=$('settings-form');
 settings.replaceChildren();
-const heading=element('div','dialog-heading');heading.append(element('h2','','Function settings'),button('Close',()=>$('settings-dialog').close()));settings.append(heading);
+const heading=element('div','dialog-heading'),settingsTitle=element('h2','','Graph settings');heading.append(settingsTitle,button('Close',()=>$('settings-dialog').close()));settings.append(heading);
 const functionName=element('input');functionName.required=true;functionName.setAttribute('aria-label','Function name');
 const nameLabel=element('label','','Name');nameLabel.append(functionName);settings.append(nameLabel);
 const description=element('textarea');description.rows=2;description.setAttribute('aria-label','Function description');
@@ -34,16 +66,22 @@ function signatureRow(container,name='',type='string',original=name){
  const row=element('div','signature-row'),key=element('input'),kindInput=element('input');
  key.value=name;key.placeholder='Name';key.setAttribute('aria-label','Variable name');key.dataset.original=original;
  kindInput.value=type;kindInput.setAttribute('list','signature-types');kindInput.setAttribute('aria-label','Variable type');
- row.append(key,kindInput,button('Remove',()=>row.remove()));container.append(row);
+ row.append(key,kindInput);
+ if(container===parameterRows&&graphName===project.main){
+  row.classList.add('with-value');
+  let valueInput=parameterValueInput(name,type,mainParameterValue(original,type));
+  row.append(valueInput);
+  kindInput.onchange=()=>{const next=parameterValueInput(key.value,kindInput.value,fallback(kindInput.value));valueInput.replaceWith(next);valueInput=next;};
+ }
+ row.append(button('Remove',()=>row.remove()));container.append(row);
 }
 for(const [title,container] of [['Parameters',parameterRows],['Return values',returnRows]]){
  const head=element('div','signature-heading');head.append(element('strong','',title),button('Add '+title.toLowerCase(),()=>signatureRow(container)));settings.append(head,container);
 }
-const args=element('textarea');args.rows=3;args.setAttribute('aria-label','Main run arguments');
-const argsLabel=element('label','','Main run arguments (JSON)');argsLabel.append(args);settings.append(argsLabel);
+const parameterHelp=element('p','','Main parameter values are saved with the project. Boolean values use a checkbox. Drag parameters from the sidebar to add readers anywhere in this graph.');settings.append(parameterHelp);
 const runSettingsBox=element('fieldset','run-settings');runSettingsBox.append(element('legend','','Run controls (main graph)'));
 const runFields={};
-for(const [key,label,type,value] of [['overlay','Show desktop overlay','checkbox',true],['minimize','Minimize editor when starting','checkbox',true],['pause_key','Pause / Resume shortcut','text','F8'],['stop_key','Stop shortcut','text','F9'],['start_delay','Start delay (seconds)','number',3],['position','Overlay corner','select','top-right']]){
+for(const [key,label,type,value] of [['overlay','Show desktop overlay','checkbox',true],['minimize','Minimize editor when starting','checkbox',true],['pause_key','Pause / Resume shortcut','text','F8'],['stop_key','Stop shortcut','text','F9'],['debug_capture_key','Debug: capture offset','text','F6'],['debug_resume_key','Debug: resume now','text','F10'],['debug_delay_key','Debug: resume in 2 seconds','text','Shift+F10'],['start_delay','Start delay (seconds)','number',3],['position','Overlay corner','select','top-right']]){
  const row=element('label','',label),input=element(type==='select'?'select':'input');
  if(type==='select')for(const corner of ['top-right','top-left','bottom-right','bottom-left']){const o=element('option','',corner);o.value=corner;input.append(o);}else input.type=type;
  if(type==='number'){input.min=0;input.max=60;input.step=.1;}
@@ -74,18 +112,20 @@ $('graph-settings').onclick=()=>{
  const saved=project.graphs[project.main].run_settings||{};
  for(const [key,input] of Object.entries(runFields)){const value=saved[key]??input.dataset.default;if(input.type==='checkbox')input.checked=value===true||value==='true';else input.value=value;}
  const g=graph();functionName.value=graphName;description.value=g.description||'';parameterRows.replaceChildren();returnRows.replaceChildren();
+ settingsTitle.textContent=graphName===project.main?'Main graph settings':'Function settings';parameterHelp.hidden=graphName!==project.main;
  for(const [name,type] of Object.entries(g.parameters||{}))signatureRow(parameterRows,name,type);
  const returns=g.return_types||Object.fromEntries(Object.entries(g.outputs||{}).map(([name,value])=>[name,ref(value)?kind(g.nodes[value.ref[0]])?.outputs[value.ref[1]]||'reference':typeof value==='string'?'string':'reference']));
  for(const [name,type] of Object.entries(returns))signatureRow(returnRows,name,type);
- args.value=JSON.stringify(project.editor?.arguments||{},null,2);settingsError.textContent='';deleteFunction.disabled=graphName===project.main;$('settings-dialog').showModal();
+ settingsError.textContent='';deleteFunction.disabled=graphName===project.main;$('settings-dialog').showModal();
 };
 settings.onsubmit=e=>{
  e.preventDefault();try{
-  const name=functionName.value.trim(),oldName=graphName,g=graph(),params=readSignature(parameterRows),returns=readSignature(returnRows),argumentsValue=JSON.parse(args.value);
+  const name=functionName.value.trim(),oldName=graphName,g=graph(),params=readSignature(parameterRows),returns=readSignature(returnRows);
+  const argumentsValue=graphName===project.main?Object.fromEntries([...parameterRows.children].map(row=>[row.querySelector('input').value.trim(),row.querySelector('.parameter-value').readValue()])):null;
   if(!validName(name)||(name!==oldName&&Object.hasOwn(project.graphs,name)))throw Error('Use a unique function name.');
-  if(!object(argumentsValue))throw Error('Run arguments must be a JSON object.');
-  for(const key of ['pause_key','stop_key'])if(!/^(?:(?:Control|Alt|Shift)\+)*F(?:[1-9]|1[0-9]|2[0-4])$/.test(runFields[key].value))throw Error('Use F1-F24 with optional Control+, Alt+, Shift+ modifiers.');
-  if(runFields.pause_key.value.split('+').sort().join('+')===runFields.stop_key.value.split('+').sort().join('+'))throw Error('Pause and Stop need different shortcuts.');
+  const shortcutKeys=Object.keys(runFields).filter(key=>key.endsWith('_key'));
+  for(const key of shortcutKeys)if(!/^(?:(?:Control|Alt|Shift)\+)*F(?:[1-9]|1[0-9]|2[0-4])$/.test(runFields[key].value))throw Error('Use F1-F24 with optional Control+, Alt+, Shift+ modifiers.');
+  if(new Set(shortcutKeys.map(key=>[...new Set(runFields[key].value.split('+'))].sort().join('+'))).size!==shortcutKeys.length)throw Error('Run shortcuts must all be different.');
   if(!Number.isFinite(Number(runFields.start_delay.value))||Number(runFields.start_delay.value)<0||Number(runFields.start_delay.value)>60)throw Error('Start delay must be 0-60 seconds.');
   change(()=>{
    if(name!==oldName){project.graphs[name]=g;delete project.graphs[oldName];if(project.main===oldName)project.main=name;graphName=name;}
@@ -119,7 +159,7 @@ settings.onsubmit=e=>{
     for(const node of Object.values(owner.nodes))node.inputs=rewrite(node.inputs||{},remapReturn);
     owner.outputs=rewrite(owner.outputs||{},remapReturn);
    }
-   project.editor ||= {};project.editor.arguments=project.main===name?Object.fromEntries(Object.entries(argumentsValue).map(([key,value])=>[params.renames[key]||key,value])):argumentsValue;selected=null;selectedNodes.clear();
+   if(project.main===name){g.parameter_defaults=argumentsValue;project.editor ||= {};project.editor.arguments=copy(argumentsValue);}selected=null;selectedNodes.clear();
   });$('settings-dialog').close();fit();
  }catch(error){settingsError.textContent=error.message;}
 };

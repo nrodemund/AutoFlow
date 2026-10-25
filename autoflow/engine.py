@@ -25,7 +25,8 @@ class SimulationScreen:
     def click(self, x, y):
         return f"SIMULATED click at ({x}, {y})"
 
-    def move(self, point): pass
+    def move(self, point): self._cursor = dict(point)
+    def cursor_position(self): return dict(getattr(self, '_cursor', {'x': 0, 'y': 0}))
     def drag(self, start, end, duration, cancel): pass
     def key_press(self, keys): pass
     def copy(self, cancel): return ""
@@ -72,6 +73,10 @@ class Engine:
         self.current_node = ""
         self.manual_request = None
         self.manual_lock = threading.Lock()
+        self.debug_request = None
+        self.debug_lock = threading.Lock()
+        self.debug_edits = []
+        self._debug_runtime = None
         self.status_text = ""
         self.validate()
 
@@ -100,8 +105,82 @@ class Engine:
                 raise ValueError("This manual interaction is no longer waiting")
             request["choice"] = choice
 
+    def debug_node(self, context, node_id, kind, inputs):
+        import uuid
+        from autoflow.debugging import describe_inputs
+        self.checkpoint()
+        preview = ''
+        update = kind.debug_update
+        if kind.debug_preview:
+            try:
+                preview = kind.debug_preview(context, node_id, inputs) or ''
+            except Exception as error:
+                preview = f'Preview failed: {error}'
+                update = None
+        request = dict(id=uuid.uuid4().hex, node=node_id,
+                       graph=next(name for name, graph in self.project['graphs'].items() if graph is context.graph),
+                       title=context.graph['nodes'][node_id].get('title') or kind.title or kind.name,
+                       inputs=describe_inputs(inputs, kind.deferred_inputs), preview=preview, continued=False,
+                       can_capture=kind.name == 'OffsetPoint', resume_at=0)
+        with self.debug_lock:
+            self.debug_request = request
+            self._debug_runtime = (context, kind, inputs)
+        try:
+            while True:
+                if self.cancel.wait(.05):
+                    raise GraphError('Execution cancelled')
+                with self.debug_lock:
+                    if request['continued'] and time.monotonic() >= request['resume_at']:
+                        return
+                if update:
+                    try:
+                        preview = update(context, node_id, inputs)
+                    except Exception as error:
+                        preview = f'Live preview unavailable: {error}'
+                        update = None
+                    with self.debug_lock:
+                        request['preview'] = preview
+        finally:
+            with self.debug_lock:
+                self.debug_request = None
+                self._debug_runtime = None
+
+    def continue_debug(self, request_id, delay=0):
+        if type(delay) not in (int, float) or delay not in (0, 2):
+            raise ValueError('Debug resume delay must be 0 or 2 seconds')
+        with self.debug_lock:
+            request = self.debug_request
+            if not request or request['id'] != request_id or request['continued']:
+                raise ValueError('This debug breakpoint is no longer waiting')
+            request['continued'] = True
+            request['resume_at'] = time.monotonic() + delay
+
+    def capture_debug_offset(self, request_id):
+        from copy import deepcopy
+        from autoflow.debugging import describe_inputs
+        with self.debug_lock:
+            request = self.debug_request
+            if not request or request['id'] != request_id or request['continued'] or self.cancel.is_set():
+                raise ValueError('This debug breakpoint is no longer waiting')
+            if not request['can_capture']:
+                raise ValueError('Capture offset is only available for Offset Point')
+            context, kind, inputs = self._debug_runtime
+            cursor = checked(self.screen.cursor_position(), 'reference:Point')
+            origin = inputs['point']
+            changes = {'x': cursor.x - origin['x'], 'y': cursor.y - origin['y']}
+            node = context.graph['nodes'][request['node']]
+            previous = {key: deepcopy(node.get('inputs', {}).get(key, 0)) for key in changes}
+            node.setdefault('inputs', {}).update(changes)
+            inputs.update(changes)
+            request['inputs'] = describe_inputs(inputs, kind.deferred_inputs)
+            request['captured'] = changes
+            edit = dict(id=len(self.debug_edits) + 1, graph=request['graph'], node=request['node'],
+                        previous=previous, changes=changes)
+            self.debug_edits.append(edit)
+            return deepcopy(edit)
+
     def toggle_pause(self):
-        if self.manual_request is not None:
+        if self.manual_request is not None or self.debug_request is not None:
             return  # Pause shortcut must never acknowledge a manual decision.
         if self.resumed.is_set():
             self.resumed.clear()
@@ -141,6 +220,8 @@ class Engine:
             if graph.get("entry") not in nodes:
                 raise GraphError(f"{name}: entry does not exist")
             for node_id, node in nodes.items():
+                if type(node.get('debug', False)) is not bool:
+                    raise GraphError(f'{name}/{node_id}: debug must be a boolean')
                 kind = definition(self.project, graph, node, self.registry)
                 if kind is None:
                     raise GraphError(f"{name}/{node_id}: unknown node type")
@@ -178,7 +259,9 @@ class Engine:
 
     def run(self, parameters=None):
         self.steps = 0
-        return self.call(self.project["main"], parameters or {}, 0)
+        main = self.project['graphs'][self.project['main']]
+        arguments = main.get('parameter_defaults', {}) | (parameters or {})
+        return self.call(self.project["main"], arguments, 0)
 
     def call(self, name, parameters, depth):
         if depth >= self.max_depth:
@@ -261,6 +344,10 @@ class Context:
             self.check()
             if not kind.pure:
                 self.engine.current_node = f"{node_id} · {kind.title or kind.name}"
+            if node.get('debug', False):
+                self.engine.current_node = f"{node_id} · {kind.title or kind.name}"
+                self.engine.debug_node(self, node_id, kind, inputs)
+                self.check()
             outputs, flow = kind.execute(self, node_id, inputs)
             if set(outputs) != set(kind.outputs) or (flow is not None and flow not in kind.flows):
                 raise GraphError(f"Invalid result from node type {kind.name}")

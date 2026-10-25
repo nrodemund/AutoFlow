@@ -33,6 +33,10 @@ class RunControlTests(unittest.TestCase):
         self.assertFalse(worker.is_alive());self.assertIn('cancelled',errors[0])
 
     def test_settings_validation(self):
-        for bad in ({'pause_key':'F9'},{'start_delay':-1},{'overlay':'yes'},{'pause_key':'A'},{'position':'center'}):
+        for bad in ({'pause_key':'F9'},{'start_delay':-1},{'overlay':'yes'},{'pause_key':'A'},{'position':'center'},
+                    {'debug_capture_key':'F9'}, {'debug_resume_key':'A'}, {'debug_delay_key':'F10'}):
             with self.assertRaises(ValueError):settings({'main':'Main','graphs':{'Main':{'run_settings':bad}}})
         self.assertEqual(settings({})['stop_key'],'F9')
+        self.assertEqual(settings({})['debug_capture_key'],'F6')
+        self.assertEqual(settings({})['debug_resume_key'],'F10')
+        self.assertEqual(settings({})['debug_delay_key'],'Shift+F10')

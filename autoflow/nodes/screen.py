@@ -21,6 +21,12 @@ def click(ctx, node_id, inputs):
     return {}, "then"
 
 
+def preview_click(ctx, node_id, inputs):
+    p = checked_point(inputs['point'])
+    ctx.engine.screen.move(p)
+    return f'Mouse moved to ({p["x"]}, {p["y"]}). No click sent. Continue executes the click.'
+
+
 def find_text(ctx, node_id, inputs):
     location = ctx.engine.screen.find_text(inputs["text"], checked_point(inputs["start"]),
         checked_point(inputs["end"]), inputs["language"], ctx.engine.cancel, inputs["case_sensitive"])
@@ -76,7 +82,7 @@ NODES = [
              ("found", "not_found"), find, "Find a texture on the desktop. Point is its physical top-left position; confidence is 1-100 percent.",
              defaults={"texture": "", "confidence": 97}, category="Screen")
     for name in ("FindOnScreen", "IfOnScreen")
-] + [NodeType("Click", {"point": "reference:Point"}, {}, ("then",), click, defaults={"point": {"x": 0, "y": 0}}, category="Screen"),
+] + [NodeType("Click", {"point": "reference:Point"}, {}, ("then",), click, defaults={"point": {"x": 0, "y": 0}}, category="Screen", debug_preview=preview_click),
      NodeType("IsOnScreen", {"texture": "string", "confidence": "integer"}, {"found": "bool"}, (),
               is_on_screen, "Pure boolean: captures and checks the desktop each time its output is read.",
               defaults={"texture": "", "confidence": 97}, pure=True, category="Screen")]

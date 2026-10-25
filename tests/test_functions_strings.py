@@ -15,6 +15,21 @@ def document():
 
 
 class FunctionTests(unittest.TestCase):
+    def test_main_parameter_defaults_and_repeated_readers(self):
+        p=document();g=p['graphs']['Main']
+        g['parameters']={'enabled':'bool','name':'string'}
+        g['parameter_defaults']={'enabled':False,'name':'Ada'}
+        g['nodes']['call']['inputs']['name']={'param':'name'}
+        for node_id in ('enabled1','enabled2'):
+            g['nodes'][node_id]={'type':'FunctionParameter','parameter':'enabled','inputs':{}}
+            g['outputs'][node_id]={'ref':[node_id,'value']}
+        engine=Engine(p,discover())
+        self.assertEqual(engine.run(),{'greeting':'Hello Ada','length':3,'enabled1':False,'enabled2':False})
+        self.assertEqual(engine.run({'enabled':True,'name':'Bob'}),
+                         {'greeting':'Hello Bob','length':3,'enabled1':True,'enabled2':True})
+        self.assertFalse(engine.run()['enabled1'])
+        with self.assertRaisesRegex(ValueError,'bool'):engine.run({'enabled':'yes'})
+
     def test_typed_parameters_and_multiple_returns(self):
         self.assertEqual(Engine(document(),discover()).run(),{'greeting':'Hello Ada','length':3})
 

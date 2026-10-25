@@ -3,9 +3,10 @@ const {app,BrowserWindow,globalShortcut,ipcMain,screen,dialog}=require('electron
 const {spawn}=require('node:child_process');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const OVERLAY_WIDTH=340, NORMAL_HEIGHT=112, MANUAL_HEIGHT=184;
+const OVERLAY_WIDTH=340, NORMAL_HEIGHT=112, MANUAL_HEIGHT=184, DEBUG_HEIGHT=280;
 let overlayMode=null;
 let backend,main,overlay,url,timer,busy=false,wasRunning=false,registered='',closing=false;
+let latestDebug=null;
 if(process.argv.includes('--smoke-test'))app.setPath('userData',path.join(__dirname,'.smoke-profile'));
 if(!app.requestSingleInstanceLock())app.quit();
 else {
@@ -15,6 +16,12 @@ app.whenReady().then(start).catch(error=>{dialog.showErrorBox('AutoFlow could no
 async function api(endpoint,data){
  const r=await fetch(url+'/api/'+endpoint,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined,signal:AbortSignal.timeout(3000)});
  const result=await r.json();if(!r.ok)throw Error(result.error||'Backend error');return result;
+}
+async function dispatchControl(action,requestId){
+ if(['success','failed'].includes(action))return api('manual-response',{id:requestId,choice:action});
+ if(action==='debug-delay')return api('debug-continue',{id:requestId,delay:2});
+ if(action==='debug-continue'||action==='debug-capture')return api(action,{id:requestId});
+ return api(action,{});
 }
 function secure(win){
  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -37,8 +44,8 @@ async function start(){
  overlay.webContents.setZoomFactor(1);
  overlay.webContents.setVisualZoomLevelLimits(1,1);
  ipcMain.handle('control',async(event,action,requestId)=>{
-  if(event.sender!==overlay.webContents||!['pause','stop','success','failed'].includes(action))return;
-  await api(['success','failed'].includes(action)?'manual-response':action,['success','failed'].includes(action)?{id:requestId,choice:action}:{});
+  if(event.sender!==overlay.webContents||!['pause','stop','success','failed','debug-continue','debug-delay','debug-capture'].includes(action))return;
+  await dispatchControl(action,requestId);
  });
  main.on('close',event=>{
   if(closing)return;
@@ -82,13 +89,19 @@ async function poll(){
  if(busy||closing)return;busy=true;
  try{
   const data=await api('events?after=999999'),s=data.status;
-  const config=s.settings,keys=data.running?config.pause_key+'|'+config.stop_key:'';
+  latestDebug=s.debug||null;
+  const config=s.settings,bindings=[['pause_key','pause'],['stop_key','stop']];
+  if(latestDebug){bindings.push(['debug_resume_key','debug-continue'],['debug_delay_key','debug-delay']);if(latestDebug.can_capture)bindings.push(['debug_capture_key','debug-capture']);}
+  const keys=data.running?bindings.map(([key])=>config[key]).join('|'):'';
   if(keys!==registered){
    globalShortcut.unregisterAll();registered=keys;
    if(keys){
     let ok=false;
-    try{ok=globalShortcut.register(config.pause_key,()=>api('pause',{}).catch(()=>{}))&&globalShortcut.register(config.stop_key,()=>api('stop',{}).catch(()=>{}));}catch{}
-    if(!ok){globalShortcut.unregisterAll();await api('stop',{});dialog.showErrorBox('Run stopped: shortcut unavailable','Another app may own the shortcut. Choose different Pause/Stop keys in Graph settings.');}
+    try{ok=bindings.every(([key,action])=>globalShortcut.register(config[key],()=>{
+     if(action.startsWith('debug-')&&(!latestDebug||latestDebug.resuming))return;
+     dispatchControl(action,latestDebug?.id).catch(()=>{});
+    }));}catch{}
+    if(!ok){globalShortcut.unregisterAll();await api('stop',{});dialog.showErrorBox('Run stopped: shortcut unavailable','Another app may own the shortcut. Choose different run shortcuts in Graph settings.');}
    }
   }
   if(data.running&&!wasRunning){
@@ -97,8 +110,8 @@ async function poll(){
    if(config.minimize)main.minimize();
   }
   overlay.webContents.send('status',s);
-  const manualMode=!!s.manual;
-  const overlayHeight=manualMode?MANUAL_HEIGHT:NORMAL_HEIGHT;
+  const manualMode=s.debug?'debug':s.manual?'manual':'normal';
+  const overlayHeight=s.debug?DEBUG_HEIGHT:s.manual?MANUAL_HEIGHT:NORMAL_HEIGHT;
   if(overlayMode!==manualMode){
    overlayMode=manualMode;
    overlay.setResizable(true);
@@ -107,7 +120,7 @@ async function poll(){
    const bounds=overlay.getBounds(),area=screen.getDisplayMatching(bounds).workArea;
    overlay.setPosition(Math.max(area.x,Math.min(bounds.x,area.x+area.width-OVERLAY_WIDTH)),Math.max(area.y,Math.min(bounds.y,area.y+area.height-overlayHeight)));
   }
-  if(data.running&&(config.overlay||s.manual))overlay.showInactive();else overlay.hide();
+  if(data.running&&(config.overlay||s.manual||s.debug))overlay.showInactive();else overlay.hide();
   wasRunning=data.running;
  }catch(error){overlay.webContents.send('status',{state:'disconnected',text:error.message,settings:{}});}
  finally{busy=false;}

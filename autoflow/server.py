@@ -42,20 +42,31 @@ class Editor:
         self.results = {}
         self.run_state = "ready"
         self.active_settings = run_settings({})
+        self.run_id = None
 
     def status(self):
         engine = self.engine
         manual = None
+        debug = None
+        debug_edits = []
         if engine:
             with engine.manual_lock:
                 manual = dict(engine.manual_request) if engine.manual_request else None
+            with engine.debug_lock:
+                request = engine.debug_request
+                debug = {k: v for k, v in request.items() if k not in ('continued', 'resume_at')} if request else None
+                if debug is not None:
+                    debug['resuming'] = request['continued']
+                    debug['resume_in_ms'] = max(0, math.ceil((request['resume_at'] - time.monotonic()) * 1000)) if request['continued'] else 0
+                debug_edits = deepcopy(engine.debug_edits)
         state = self.run_state
         if self.running and engine:
-            state = ("stopping" if engine.cancel.is_set() else "manual" if manual else "paused" if engine.paused
+            state = ("stopping" if engine.cancel.is_set() else "debug" if debug else "manual" if manual else "paused" if engine.paused
                      else "pausing" if not engine.resumed.is_set() else "running")
         return dict(state=state, text=(engine.status_text or engine.current_node) if engine else "",
                     steps=engine.steps if engine else 0, settings=self.active_settings,
-                    manual={k:v for k,v in manual.items() if k != "choice"} if manual else None)
+                    manual={k:v for k,v in manual.items() if k != "choice"} if manual else None, debug=debug,
+                    debug_edits=debug_edits, run_id=self.run_id)
 
     def path(self, filename):
         if not isinstance(filename, str) or not re.fullmatch(r"[\w -][\w .-]{0,100}\.json", filename):
@@ -106,6 +117,8 @@ class Editor:
                     raise ValueError("Project contains an unknown node type")
                 if not isinstance(node.get("inputs", {}), dict) or not isinstance(node.get("next", {}), dict):
                     raise ValueError("Node inputs and next must be objects")
+                if type(node.get('debug', False)) is not bool:
+                    raise ValueError('Node debug must be a boolean')
                 position = node.get("position", [0, 0])
                 if not isinstance(position, list) or len(position) != 2 or any(type(v) not in (int, float) or not math.isfinite(v) for v in position):
                     raise ValueError("Node position must be [x, y]")
@@ -126,6 +139,7 @@ class Editor:
                                  screen=self.screen_factory(self.projects),
                                  log=lambda message: self.event("print", message))
             run_id = uuid.uuid4().hex
+            self.run_id = run_id
             self.running = True
             self.run_state = "running"
             self.event("info", "Run started · live desktop automation")
@@ -277,6 +291,17 @@ def make_server(editor, port=8765):
                             raise ValueError("No graph is running")
                         editor.engine.answer_manual(data["id"], data["choice"])
                     result = {"ok": True}
+                elif path == '/api/debug-continue':
+                    with editor.lock:
+                        if not editor.running or not editor.engine:
+                            raise ValueError('No graph is running')
+                        editor.engine.continue_debug(data['id'], data.get('delay', 0))
+                    result = {'ok': True}
+                elif path == '/api/debug-capture':
+                    with editor.lock:
+                        if not editor.running or not editor.engine:
+                            raise ValueError('No graph is running')
+                        result = {'edit': editor.engine.capture_debug_offset(data['id'])}
                 elif path == "/api/pause":
                     with editor.lock:
                         if editor.running and editor.engine:

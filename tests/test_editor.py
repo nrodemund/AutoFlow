@@ -100,6 +100,7 @@ class EditorAPITests(unittest.TestCase):
 
     def test_save_load_and_new_server_reopen_last_save(self):
         self.project["graphs"]["Main"]["nodes"]["add"]["position"] = [410, 270]
+        self.project["graphs"]["Main"]["nodes"]["add"]["debug"] = True
         self.project["graphs"]["Main"]["nodes"]["add"]["inputs"]["a"] = 40
         status, _ = self.request("/api/save", {"filename": "first.json", "project": self.project})
         self.assertEqual(status, 200)
@@ -140,6 +141,30 @@ class EditorAPITests(unittest.TestCase):
         self.assertEqual(self.request(f"/api/events?after={cursor}")[1]["events"], [])
         self.assertEqual(self.request("/api/events?after=999999")[1]["events"], body["events"])
 
+    def test_debug_status_and_explicit_continue_api(self):
+        g = self.project['graphs']['Main']
+        g['run_settings'] = {'start_delay': 0}
+        g['nodes']['add']['debug'] = True
+        self.assertEqual(self.request('/api/run', {'project': self.project})[0], 200)
+        deadline = time.monotonic() + 2
+        while not self.editor.engine.debug_request and time.monotonic() < deadline:
+            time.sleep(.01)
+        status, body = self.request('/api/events')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['status']['state'], 'debug')
+        request = body['status']['debug']
+        self.assertEqual(request['node'], 'add')
+        self.assertEqual(self.request('/api/debug-continue', {'id': 'stale'})[0], 400)
+        self.request('/api/pause', {})
+        self.assertIsNotNone(self.editor.engine.debug_request)
+        self.assertEqual(self.request('/api/debug-continue', {'id': request['id']})[0], 200)
+        deadline = time.monotonic() + 2
+        while self.editor.running and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertFalse(self.editor.running)
+        self.assertTrue(any(e['kind'] == 'print' and e['message'] == '5' for e in self.editor.events))
+        self.assertEqual(self.request('/api/debug-continue', {'id': request['id']})[0], 400)
+
     def test_stop_interrupts_wait_and_blocks_concurrent_run(self):
         nodes = self.project["graphs"]["Main"]["nodes"]
         nodes["start"] = {"type": "Wait", "inputs": {"milliseconds": 30000}}
@@ -151,6 +176,37 @@ class EditorAPITests(unittest.TestCase):
             time.sleep(.01)
         self.assertFalse(self.editor.running)
         self.assertTrue(any("cancelled" in e["message"] for e in self.editor.events))
+
+    def test_debug_capture_and_delayed_resume_api(self):
+        from unittest.mock import Mock
+        screen = Mock(); screen.cursor_position.return_value = {'x': 100, 'y': 200}
+        self.editor.screen_factory = lambda base: screen
+        self.project['graphs']['Main'] = {'entry': 'start', 'run_settings': {'start_delay': 0},
+            'nodes': {'start': {'type': 'Start', 'inputs': {}},
+                      'offset': {'type': 'OffsetPoint', 'debug': True, 'inputs': {'point': {'x': 100, 'y': 200}}}},
+            'outputs': {'point': {'ref': ['offset', 'point']}}}
+        status, run = self.request('/api/run', {'project': self.project})
+        self.assertEqual(status, 200)
+        deadline = time.monotonic() + 2
+        while not self.editor.engine.debug_request and time.monotonic() < deadline: time.sleep(.01)
+        request = self.request('/api/events')[1]['status']['debug']
+        screen.cursor_position.return_value = {'x': 88, 'y': 240}
+        status, capture = self.request('/api/debug-capture', {'id': request['id']})
+        self.assertEqual(status, 200)
+        self.assertEqual(capture['edit']['changes'], {'x': -12, 'y': 40})
+        self.assertEqual(self.request('/api/debug-continue', {'id': request['id'], 'delay': 2})[0], 200)
+        state = self.request('/api/events')[1]['status']
+        self.assertEqual(state['run_id'], run['run_id'])
+        self.assertEqual(state['debug_edits'], [capture['edit']])
+        self.assertTrue(state['debug']['resuming'])
+        self.assertGreater(state['debug']['resume_in_ms'], 0)
+        self.assertLessEqual(state['debug']['resume_in_ms'], 2000)
+        self.assertEqual(self.request('/api/debug-capture', {'id': request['id']})[0], 400)
+        self.request('/api/stop', {})
+        deadline = time.monotonic() + 2
+        while self.editor.running and time.monotonic() < deadline: time.sleep(.01)
+        self.assertFalse(self.editor.running)
+        self.assertEqual(self.request('/api/events')[1]['status']['debug_edits'], [capture['edit']])
 
     def test_texture_is_stored_as_relative_reference(self):
         import base64

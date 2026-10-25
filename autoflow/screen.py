@@ -235,6 +235,9 @@ class WindowsScreen:
     def move(self, p):
         self.input.move(p["x"], p["y"])
 
+    def cursor_position(self):
+        return self.input.cursor_position()
+
     def drag(self, start, end, duration, cancel):
         self.input.drag(start, end, duration, cancel)
 

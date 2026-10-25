@@ -61,6 +61,13 @@ class WindowsInput:
             if not self.user32.SetCursorPos(x, y):
                 raise RuntimeError("Windows could not move the cursor")
 
+    def cursor_position(self):
+        position = w.POINT()
+        with physical_pixels():
+            if not self.user32.GetCursorPos(ctypes.byref(position)):
+                raise RuntimeError('Windows could not read the cursor position')
+        return {'x': position.x, 'y': position.y}
+
     def mouse(self, button, down):
         flags = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010), "middle": (0x0020, 0x0040)}
         if button not in flags:

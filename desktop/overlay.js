@@ -1,13 +1,20 @@
-let manualId=null;
+let manualId=null,debugId=null;
 window.runControl.onStatus(s=>{
  manualId=s.manual?.id||null;
+ debugId=s.debug?.id||null;
  document.body.classList.toggle('manual',!!manualId);
- document.getElementById('state').textContent=manualId?'Your action needed':s.state;
- document.getElementById('text').textContent=s.manual?.prompt||s.text||'Executing graph';
- document.getElementById('pause').hidden=!!manualId;
- document.getElementById('continue').hidden=!manualId;
+ document.getElementById('state').textContent=s.debug?.resuming?`Resuming in ${(s.debug.resume_in_ms/1000).toFixed(1)}s`:debugId?'Debug breakpoint':manualId?'Your action needed':s.state;
+ document.getElementById('text').textContent=debugId?[`${s.debug.graph} / ${s.debug.title} (${s.debug.node})`,s.debug.captured?`Captured X=${s.debug.captured.x}, Y=${s.debug.captured.y}.`:'',s.debug.preview||'Paused before execution.',...s.debug.inputs.map(input=>`${input.name}${input.deferred?' (deferred; not evaluated)':''}: ${input.value}`),'Continue executes this node normally.'].filter(Boolean).join('\n'):s.manual?.prompt||s.text||'Executing graph';
+ document.getElementById('pause').hidden=!!(manualId||debugId);
+ document.getElementById('continue').hidden=!(manualId||debugId);
+ document.getElementById('continue').textContent=debugId?'Continue - '+(s.settings.debug_resume_key||'F10'):'Continue';
+ document.getElementById('debug-tools').hidden=!debugId;
+ document.getElementById('capture').hidden=!s.debug?.can_capture;
+ document.getElementById('capture').textContent='Capture - '+(s.settings.debug_capture_key||'F6');
+ document.getElementById('delay').textContent='2s - '+(s.settings.debug_delay_key||'Shift+F10');
+ for(const id of ['continue','capture','delay'])document.getElementById(id).disabled=!!s.debug?.resuming;
  document.getElementById('ignore').hidden=!manualId;
- document.getElementById('pause').textContent=(['paused','pausing'].includes(s.state)?'Resume':'Pause')+' · '+(s.settings.pause_key||'');
- document.getElementById('stop').textContent='Stop · '+(s.settings.stop_key||'');
+ document.getElementById('pause').textContent=(['paused','pausing'].includes(s.state)?'Resume':'Pause')+' - '+(s.settings.pause_key||'');
+ document.getElementById('stop').textContent='Stop - '+(s.settings.stop_key||'');
 });
-for(const [id,action] of [['pause','pause'],['stop','stop'],['continue','success'],['ignore','failed']])document.getElementById(id).onclick=()=>window.runControl.action(action,manualId).catch(error=>{document.getElementById('text').textContent=error.message;});
+for(const [id,action] of [['pause','pause'],['stop','stop'],['continue','success'],['ignore','failed'],['capture','debug-capture'],['delay','debug-delay']])document.getElementById(id).onclick=()=>window.runControl.action(id==='continue'&&debugId?'debug-continue':action,debugId||manualId).catch(error=>{document.getElementById('text').textContent=error.message;});

@@ -18,6 +18,8 @@ class NodeType:
     title: str = ""
     category: str = "Utilities"
     deferred_inputs: tuple[str, ...] = ()
+    debug_preview: Callable | None = None
+    debug_update: Callable | None = None
 
 
 def discover(package_name="autoflow.nodes"):

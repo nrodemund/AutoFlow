@@ -11,6 +11,7 @@ const label = name => name.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase
 let project, catalog = {}, graphName, selected = null, dirty = false, revision = 0;
 let view = {x:30,y:10,z:1}, pending = null, drag = null, pointer = {x:0,y:0};
 let undo = [], redo = [], cursor = 0, running = false, toastTimer, polling = false;
+let debugRunId=null, appliedDebugEdits=new Set();
 const graph = () => project.graphs[graphName];
 const kind = node => (typeof functionNodeKind==='function' && functionNodeKind(node)) || catalog[node.type];
 function element(tag, className, text) {
@@ -48,6 +49,7 @@ function restoreHistory(from,to) {
   selected=null;if(typeof selectedNodes!=='undefined')selectedNodes.clear(); pending=null; mark(); render();
 }
 function setProject(next, filename, saved=true) {
+  debugRunId=null;appliedDebugEdits.clear();
   activeDataset=null; pendingDatasetResult=null; datasetRun=null; $('apply-dataset-result').hidden=true;
   if(typeof selectedNodes!=='undefined')selectedNodes.clear();
   project=copy(next); project.datasets ||= {}; graphName=project.main; selected=null; pending=null; undo=[]; redo=[];
@@ -196,6 +198,13 @@ function valueEditor(id,pin,type,value) {
   };
   e.oninput=()=>e.setCustomValidity(''); return e;
 }
+function debugToggle(node) {
+  const toggle=button('●',event=>{event.stopPropagation();change(()=>node.debug=!node.debug);},'debug-toggle');
+  toggle.title='Debug: pause before executing this node';
+  toggle.setAttribute('aria-label','Debug breakpoint');toggle.setAttribute('aria-pressed',String(!!node.debug));
+  toggle.onpointerdown=event=>event.stopPropagation();
+  return toggle;
+}
 function renderNodes() {
   const box=$('nodes');box.replaceChildren();
   let index=0;
@@ -206,6 +215,8 @@ function renderNodes() {
     const e=element('article',`node ${category}-node${(typeof selectedNodes!=='undefined'?selectedNodes.has(id):selected===id)?' selected':''}${graph().entry===id?' entry':''}`);
     e.dataset.id=id;e.style.left=position[0]+'px';e.style.top=position[1]+'px';
     const head=element('div','node-header');head.append(element('span','',d.pure?'+':d.name==='Start'?'▶':'◇'),element('strong','',node.title||d.title),element('small','',d.pure?'PURE':''));
+    head.append(debugToggle(node));
+    if(typeof activeDebug!=='undefined'&&activeDebug?.graph===graphName&&activeDebug.node===id)e.classList.add('debug-current');
     head.onpointerdown=event=>{
       if(event.button!==0)return;
       event.preventDefault();event.stopPropagation();selectNode(id,event.shiftKey);
@@ -271,7 +282,7 @@ function renderDetails() {
   box.append(button('Disconnect all pins',()=>change(()=>disconnectNode(selected))));
   box.append(button('Delete node',deleteSelected,'danger'));
 }
-function render() {if(typeof renderComments==='function')renderComments();renderDatasetList();renderGraphs();renderNodes();renderDetails();updateView();$('undo').disabled=!undo.length;$('redo').disabled=!redo.length;}
+function render() {if(typeof renderComments==='function')renderComments();if(typeof renderParameters==='function')renderParameters();renderDatasetList();renderGraphs();renderNodes();renderDetails();updateView();$('undo').disabled=!undo.length;$('redo').disabled=!redo.length;}
 function updateView() {
   $('world').style.transform=`translate(${view.x}px,${view.y}px) scale(${view.z})`;
   $('canvas').style.backgroundSize=`${24*view.z}px ${24*view.z}px`;
@@ -465,13 +476,13 @@ async function openDialog() {
   }catch(error){report(error);}
 }
 async function run() {
-  try {const baseline=JSON.stringify(project.datasets||{});const result=await api('run',{project,parameters:project.editor?.arguments||{}});datasetRun={id:result.run_id,baseline};setRunning(true);await poll();}
+  try {const baseline=JSON.stringify(project.datasets||{});const result=await api('run',{project,parameters:project.editor?.arguments||{}});datasetRun={id:result.run_id,baseline};debugRunId=result.run_id;appliedDebugEdits.clear();setRunning(true);await poll();}
   catch(error){report(error);}
 }
 function setRunning(value) {running=value;$('run').disabled=value;$('stop').disabled=!value;$('run-state').textContent=value?'Running…':'Ready';}
 async function poll() {
   if(polling)return;polling=true;
-  try {const data=await api('events?after='+cursor);for(const event of data.events){log(event.kind,event.message,event.time);cursor=event.id;}setRunning(data.running);if(data.status){updateManualPrompt(data.status.manual);$('run-state').textContent=data.status.state+(data.running?' · '+data.status.text:'');$('pause-run').disabled=!data.running||!!data.status.manual;$('pause-run').textContent=['paused','pausing'].includes(data.status.state)?'Resume':'Pause';}if(!data.running)await applyRunDatasets();}
+  try {const data=await api('events?after='+cursor);for(const event of data.events){log(event.kind,event.message,event.time);cursor=event.id;}setRunning(data.running);if(data.status){applyDebugEdits(data.status);updateManualPrompt(data.status.manual);updateDebugPrompt(data.status.debug,data.status.settings);$('run-state').textContent=data.status.state+(data.running?' · '+data.status.text:'');$('pause-run').disabled=!data.running||!!data.status.manual||!!data.status.debug;$('pause-run').textContent=['paused','pausing'].includes(data.status.state)?'Resume':'Pause';}if(!data.running)await applyRunDatasets();}
   catch(error){$('run-state').textContent='Server disconnected';}
   finally{polling=false;}
 }
@@ -481,9 +492,11 @@ $('canvas').onpointerdown=e=>{
   e.preventDefault();selectNode(null);pending=null;document.body.classList.remove('connecting');
   drag={kind:'pan',startX:e.clientX,startY:e.clientY,x:view.x,y:view.y};updateWires();
 };
-$('canvas').ondragover=e=>{if([...e.dataTransfer.types].some(t=>['application/x-autoflow-node','application/x-autoflow-dataset','application/x-autoflow-function'].includes(t))){e.preventDefault();e.dataTransfer.dropEffect='copy';}};
+$('canvas').ondragover=e=>{if([...e.dataTransfer.types].some(t=>['application/x-autoflow-node','application/x-autoflow-dataset','application/x-autoflow-function','application/x-autoflow-parameter'].includes(t))){e.preventDefault();e.dataTransfer.dropEffect='copy';}};
 $('canvas').ondrop=e=>{
   e.preventDefault();$('canvas').classList.remove('library-drop');
+  const parameter=e.dataTransfer.getData('application/x-autoflow-parameter');
+  if(parameter&&Object.hasOwn(graph().parameters||{},parameter)){const p=screenPoint(e.clientX,e.clientY);addNode('FunctionParameter',[p.x,p.y],{},{parameter});return;}
   const fn=e.dataTransfer.getData('application/x-autoflow-function');
   if(fn&&Object.hasOwn(project.graphs,fn)){const p=screenPoint(e.clientX,e.clientY);addNode('FunctionCall',[p.x,p.y],{},{function:fn});return;}
   const name=e.dataTransfer.getData('application/x-autoflow-dataset');
@@ -660,3 +673,43 @@ async function manualAnswer(choice){try{await api('manual-response',{id:activeMa
 manualPanel.append(element('strong','','Your action needed'),manualText,button('Continue',()=>manualAnswer('success')),button('Ignore',()=>manualAnswer('failed')),button('Stop',()=>api('stop',{}).catch(report)));
 document.body.append(manualPanel);
 function updateManualPrompt(request){activeManualId=request?.id||null;manualPanel.hidden=!request;manualText.textContent=request?.prompt||'';}
+
+let activeDebug=null;
+const debugPanel=element('section');debugPanel.id='debug-prompt';debugPanel.hidden=true;
+debugPanel.setAttribute('role','region');debugPanel.setAttribute('aria-label','Node debugger');
+const debugTitle=element('strong'),debugPreview=element('p'),debugInputs=element('pre');
+async function resumeDebug(delay=0){try{debugContinue.disabled=debugDelay.disabled=true;await api('debug-continue',{id:activeDebug.id,delay});}catch(error){report(error);debugContinue.disabled=debugDelay.disabled=false;}}
+const debugContinue=button('Continue (execute node)',()=>resumeDebug());
+const debugDelay=button('Resume in 2s',()=>resumeDebug(2));
+const debugCapture=button('Capture offset',async()=>{try{await api('debug-capture',{id:activeDebug.id});await poll();}catch(error){report(error);}});
+debugPanel.append(debugTitle,debugPreview,debugInputs,element('p','','Continue executes the node normally. Stop ends the run before this node executes.'),
+  button('Show node',()=>{if(!activeDebug)return;graphName=activeDebug.graph;selected=activeDebug.node;if(typeof selectedNodes!=='undefined')selectedNodes=new Set([selected]);render();fit();}),
+  debugCapture,debugContinue,debugDelay,button('Stop',()=>api('stop',{}).catch(report)));
+document.body.append(debugPanel);
+function applyDebugEdits(status){
+  if(!debugRunId||status.run_id!==debugRunId)return;
+  for(const edit of status.debug_edits||[]){
+    if(appliedDebugEdits.has(edit.id))continue;appliedDebugEdits.add(edit.id);
+    const node=project.graphs[edit.graph]?.nodes[edit.node];
+    const keys=['x','y'],same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    if(node?.type==='OffsetPoint'&&keys.every(key=>same(node.inputs?.[key]??0,edit.changes[key])))continue;
+    if(node?.type!=='OffsetPoint'||!keys.every(key=>same(node.inputs?.[key]??0,edit.previous[key]))){
+      log('error',`Captured offset X=${edit.changes.x}, Y=${edit.changes.y} for ${edit.graph}/${edit.node}; the editor node changed during the run, so apply these values manually.`);continue;
+    }
+    change(()=>{node.inputs ||= {};Object.assign(node.inputs,edit.changes);});
+    log('info',`Captured offset X=${edit.changes.x}, Y=${edit.changes.y} applied to ${edit.graph}/${edit.node}. Save the project to keep it.`);
+  }
+}
+function updateDebugPrompt(request,settings={}){
+  activeDebug=request||null;debugPanel.hidden=!request;
+  for(const node of document.querySelectorAll('.node'))node.classList.toggle('debug-current',!!request&&request.graph===graphName&&node.dataset.id===request.node);
+  if(!request)return;
+  debugPreview.textContent=(request.resuming?`Resuming in ${(request.resume_in_ms/1000).toFixed(1)} seconds.\n`:'')+(request.captured?`Captured X=${request.captured.x}, Y=${request.captured.y}.\n`:'')+(request.preview||'Paused before execution.');
+  debugContinue.disabled=debugDelay.disabled=debugCapture.disabled=!!request.resuming;
+  debugCapture.hidden=!request.can_capture;
+  debugCapture.textContent='Capture offset · '+(settings.debug_capture_key||'F6');
+  debugContinue.textContent='Continue · '+(settings.debug_resume_key||'F10');
+  debugDelay.textContent='Resume in 2s · '+(settings.debug_delay_key||'Shift+F10');
+  debugTitle.textContent=`Debug: ${request.graph} / ${request.title} (${request.node})`;
+  debugInputs.textContent=request.inputs.length?request.inputs.map(input=>`${input.name} (${input.deferred?'deferred binding; not evaluated':input.type}): ${input.value}`).join('\n'):'This node has no inputs.';
+}

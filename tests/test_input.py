@@ -17,6 +17,23 @@ class InputTests(unittest.TestCase):
     def test_windows_x64_input_abi(self):
         self.assertEqual(ctypes.sizeof(Input), 40)
 
+    def test_cursor_position_uses_physical_pixels_and_reports_failure(self):
+        from ctypes import wintypes
+        backend = self.backend()
+        def read_cursor(pointer):
+            position = ctypes.cast(pointer, ctypes.POINTER(wintypes.POINT)).contents
+            position.x, position.y = -240, 810
+            return 1
+        backend.user32.GetCursorPos.side_effect = read_cursor
+        screen = WindowsScreen(); screen._input = backend
+        with patch('autoflow.input.physical_pixels') as pixels:
+            self.assertEqual(screen.cursor_position(), {'x': -240, 'y': 810})
+            pixels.assert_called_once()
+        backend.user32.GetCursorPos.side_effect = None
+        backend.user32.GetCursorPos.return_value = 0
+        with patch('autoflow.input.physical_pixels'), self.assertRaisesRegex(RuntimeError, 'cursor position'):
+            backend.cursor_position()
+
     def test_chords(self):
         self.assertEqual(key_codes("ctrl+shift+c"), [0x11, 0x10, ord("C")])
         self.assertEqual(key_codes("F12"), [0x7B])

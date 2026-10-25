@@ -16,6 +16,47 @@ Browser mode remains available with `autoflow.cmd editor` on port 8765.
 
 ### Running controls
 
+Every node has a **debug dot** in its header. Turn it on to pause before that
+node executes, including pure nodes and nodes inside functions. Breakpoints are
+saved with the project and stop on every execution, including loop iterations.
+The debugger shows the graph, node, and current resolved input values. Large
+values are shortened; deferred inputs are shown as unevaluated bindings.
+**Show node** jumps to the paused node. **Continue** runs it normally;
+**Stop** ends the run before it executes. F8 does not acknowledge a breakpoint.
+The desktop overlay also shows debug information and Continue/Stop controls,
+even when the normal overlay is hidden.
+
+Debugging **Click** first moves the mouse to its target without clicking, then
+waits. Continue performs the real click; Stop leaves it unclicked. Other nodes
+pause without a preview unless they supply a debug preview implementation.
+**Offset Point** moves the mouse to its current output point (base plus X/Y).
+While paused, moving the mouse shows the live X/Y offset from the base point
+and the change from the configured offset, in physical screen pixels. Move to
+the desired position and press **F6** to capture it. Capture sets the node's X/Y
+to the mouse position minus the base point, replacing any X/Y connections with
+these values. It stays paused, and Continue uses the captured offset.
+The editor receives the new values and marks the project unsaved; save to keep them.
+Moving the mouse without capturing only measures the offset.
+
+Debug desktop shortcuts work while another app has focus:
+
+- **F6:** capture the current mouse offset on a paused Offset Point node.
+- **F10:** resume the current breakpoint immediately.
+- **Shift+F10:** resume after a two-second countdown. **Stop / F9** cancels it.
+
+Configure these keys in **Graph settings → Run controls**. Debug shortcuts are
+registered only while a breakpoint is waiting. The debugger and desktop overlay
+also have Capture and Resume in 2s buttons.
+
+Main graphs support typed parameters in **Graph settings**. Each main parameter
+has an editable saved value; booleans use a checkbox. The **Parameters** sidebar
+also lets you change these values directly. Click or drag a parameter into the
+current graph as many times as needed: every reader uses the same value for that
+run, so you can place a boolean setting next to each branch without long wires.
+Function graphs have their own parameter list, with values supplied by callers.
+Pass a main parameter into a function call when that function needs the setting.
+Saved main values also apply to CLI runs; `--parameters` overrides supplied keys.
+
 Graph settings contains **Run controls (main graph)**. These preferences apply
 to the entire run, including called functions, and are saved with the project:
 
